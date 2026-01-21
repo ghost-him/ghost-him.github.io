@@ -1,6 +1,8 @@
 # /// script
 # requires-python = ">=3.6"
-# dependencies = []
+# dependencies = [
+#     "watchdog",
+# ]
 # ///
 
 """
@@ -34,6 +36,7 @@ Tufted Blog Template 构建脚本
 """
 
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -43,7 +46,14 @@ import threading
 import time
 import webbrowser
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
+
+try:
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
+    WATCHDOG_AVAILABLE = True
+except ImportError:
+    WATCHDOG_AVAILABLE = False
 
 # ============================================================================
 # 配置
@@ -277,6 +287,99 @@ def find_common_dependencies() -> List[Path]:
                     common_deps.append(typ_file)
 
     return common_deps
+
+
+class BuildEventHandler(FileSystemEventHandler):
+    """
+    文件系统事件处理器，用于检测文件内容变化并触发构建。
+    使用定时器防抖，只有在文件停止变化一段时间后才触发。
+    通过计算文件哈希来检测内容变化，避免误触发。
+    """
+
+    def __init__(self, build_func, delay: float = 10.0):
+        self.build_func = build_func
+        self.delay = delay
+        self.timer = None
+        self.lock = threading.Lock()
+        self.file_hashes: Dict[Path, str] = {}  # 存储文件的哈希值
+
+    def get_file_hash(self, file_path: Path) -> Optional[str]:
+        """计算文件的 SHA256 哈希值"""
+        try:
+            with open(file_path, 'rb') as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        except (OSError, IOError):
+            return None
+
+    def on_modified(self, event):
+        if event.is_directory:
+            return
+        self.handle_file_event(event.src_path, 'modified')
+
+    def on_created(self, event):
+        if event.is_directory:
+            return
+        self.handle_file_event(event.src_path, 'created')
+
+    def on_deleted(self, event):
+        if event.is_directory:
+            return
+        self.handle_file_event(event.src_path, 'deleted')
+
+    def handle_file_event(self, src_path: str, event_type: str):
+        file_path = Path(src_path).resolve()
+        project_root = Path.cwd().resolve()
+
+        # 忽略 _site 目录下的变化（构建输出）
+        try:
+            if file_path.relative_to(project_root / SITE_DIR):
+                return
+        except ValueError:
+            pass
+
+        # 忽略隐藏文件/目录（如 .git, .vscode）
+        if any(part.startswith(".") for part in file_path.parts):
+            return
+
+        # 只有特定的文件类型触发构建
+        valid_extensions = {".typ", ".md", ".bib", ".css", ".js", ".png", ".jpg", ".jpeg", ".svg"}
+        if file_path.suffix.lower() not in valid_extensions:
+            return
+
+        # 根据事件类型处理
+        if event_type == 'deleted':
+            # 文件删除，移除哈希记录
+            if file_path in self.file_hashes:
+                del self.file_hashes[file_path]
+            self.schedule_build()
+        elif event_type in ('created', 'modified'):
+            # 计算新哈希
+            new_hash = self.get_file_hash(file_path)
+            if new_hash is None:
+                return  # 文件无法读取，跳过
+
+            old_hash = self.file_hashes.get(file_path)
+            if new_hash != old_hash:
+                # 内容发生变化，更新哈希并触发构建
+                self.file_hashes[file_path] = new_hash
+                self.schedule_build()
+
+    def schedule_build(self):
+        """调度构建，使用防抖机制"""
+        with self.lock:
+            if self.timer:
+                self.timer.cancel()
+            self.timer = threading.Timer(self.delay, self.trigger_build)
+            self.timer.start()
+
+    def trigger_build(self):
+        with self.lock:
+            self.timer = None 
+        print("\n" + "=" * 40)
+        print(f"检测到文件内容变化且已稳定（超过 {self.delay} 秒无新变化），正在构建...")
+        print("=" * 40)
+        self.build_func()
+        print("\n等待更多变化...")
 
 
 # ============================================================================
@@ -592,6 +695,22 @@ def preview(port: int = 8000, open_browser_flag: bool = True) -> bool:
     print("正在启动本地预览服务器（按 Ctrl+C 停止）...")
     print()
 
+    # 启动实时构建观察者
+    observer = None
+    if WATCHDOG_AVAILABLE:
+        try:
+            observer = Observer()
+            # 这里的 build 函数默认不使用 force=True，实现增量构建
+            handler = BuildEventHandler(build, delay=10.0)
+            observer.schedule(handler, path=".", recursive=True)
+            observer.start()
+            print(f"  👀 实时构建已启用 (检测文件内容变化，防抖: 10秒)")
+        except Exception as e:
+            print(f"  ❌ 无法启动文件观察者: {e}")
+    else:
+        print("  ⚠ 未找到 watchdog 库，实时自动构建功能已禁用。")
+        print("     提示: 使用 'uv run build.py preview' 可自动处理依赖。")
+
     if open_browser_flag:
 
         def open_browser():
@@ -615,6 +734,10 @@ def preview(port: int = 8000, open_browser_flag: bool = True) -> bool:
     except KeyboardInterrupt:
         print("\n服务器已停止。")
         return True
+    finally:
+        if observer:
+            observer.stop()
+            observer.join()
 
     # 回退到 Python http.server
     try:
@@ -630,6 +753,10 @@ def preview(port: int = 8000, open_browser_flag: bool = True) -> bool:
     except Exception as e:
         print(f"  ❌ 启动服务器失败: {e}")
         return False
+    finally:
+        if observer:
+            observer.stop()
+            observer.join()
 
 
 def build(force: bool = False):
