@@ -1,10 +1,15 @@
-#import "../index.typ": template, tufted
+#import "../../index.typ": template, tufted
 #show: template.with(title: "6.5840 2025 Spring Lab1")
 
 
 = 记录一下 6.5840 2025 Spring Lab1 的过程
 
 == 实验要求
+
+#tufted.margin-note[
+  该实验的地址如下：#link("https://pdos.csail.mit.edu/6.824/labs/lab-mr.html")[mit 6.824] \
+  实验要求的部分为原文翻译并做适当的修改
+]
 
 要求：要求实现一个分布式的 MapReduce，包含两个程序，一个协调器（Coordinator）#footnote[Coordinator 结点就是论文中的 Master 结点。但是这个是我为实验写的笔记，所以我选择了与实验中相同的名词]，多个工作节点（worker）。
 
@@ -46,13 +51,15 @@ MapReduce的整体的处理流程如下#footnote[推荐去打开论文，对应 
 
 当然，MapReduce是会由多个机器共同组成的一个集群。那么机器越多，出故障的可能性就会越大。因此，MapReduce定义了一套容错机制：
 
-如果是 Worker 出现了故障，那么当前 Worker 所做的工作会由 Coordinator 分配给其他的 Worker 做。Coordinator是怎么知道一个 Worker 有没有发生故障的呢？-> 通过心跳检测。Worker 从全局文件系统（Global File System, GFS）中读取到了要处理的文件，同时所有的操作都是在它本机上运行的。也正因此，当它发生故障以后，它已经处理好的数据无法被其他的机器读取到#footnote[因为机器是物理上隔离的，只有通过全局文件系统才能访问到其他机器处理后的文件。而 Worker 只要当处理完所有的文件以后，才可以将已经处理好的数据放到全局文件系统中]。所以新的 Worker 会重新读取输入，重新完成任务后再传到全局文件系统中。
+如果是 Worker 出现了故障，那么当前 Worker 所做的工作会由 Coordinator 分配给其他的 Worker 做。Coordinator是怎么知道一个 Worker 有没有发生故障的呢？-> 通过心跳检测。
+
+Worker 从全局文件系统（Global File System, GFS）中读取到了要处理的文件。Map 任务产生的中间数据存储在 Worker 的本地磁盘上，而不是 GFS。也正因此，当它发生故障以后，它已经处理好的数据无法被其他的机器读取到#footnote[因为机器是物理上隔离的，只有通过全局文件系统才能访问到其他机器处理后的文件。而 Worker 只要当处理完所有的文件以后，才可以将已经处理好的数据放到全局文件系统中]。所以新的 Worker 会重新读取输入，重新完成任务后再传到全局文件系统中。而 Reduce 任务可以不需要再次运行，因为 Reduce 任务的结果是直接保存到全局文件系统中的。
 
 已完成的 Map 任务在发生故障时需要重新执行#footnote[论文中花了一小节讲述了: 大多数的 Map 与 Reduce 操作的运算符都是确定性的，所以可以通过再次运行来得到相同的结果]，因为它们的输出存储在失效机器的本地磁盘上，因此无法访问。而已完成的 Reduce 任务不需要重新执行，因为它们的输出存储在全局文件系统中。
 
 如果是 Coordinator 出现了故障，那么只能在运行时周期性的检查点，然后发生故障后需要从检查点恢复。同时论文里也指出：“然而，考虑到只有一个 Coordinator，其失效的概率很低”
 
-如果将 Map 阶段划分为 M 个部分，将 Reduce 阶段划分为 R 个部分，那么在理想状态下，M 与 R 都应该远大于工作机器的数量，这样 Coordinator 可以根据负载动态调整。但是也不能将 M 与 R 设置的过大，因为在一整个任务中， Coordinator 需要做出 $O(M + R)$ 次调度决策，同时需要保留 $O(M * R)$个状态#footnote[之所以需要保留 $O(M * R)$ 个状态，是因为 Map 阶段产生的中间数据存储在本地磁盘而非全局文件系统。每个 Map 任务都会为后续的 R 个 Reduce 任务各准备一个分区，总计产生 $M * R$ 个中间数据块。Coordinator 需要记录这些数据块的位置和状态，以便每个 Reduce 任务都能准确地从 M 个 Map 任务的本地磁盘中拉取属于自己的数据]。
+如果将 Map 阶段划分为 M 个部分，将 Reduce 阶段划分为 R 个部分，那么在理想状态下，M 与 R 都应该远大于工作机器的数量，这样 Coordinator 可以根据负载动态调整。但是也不能将 M 与 R 设置的过大，因为在一整个任务中， Coordinator 需要做出 $O(M + R)$ 次调度决策，同时需要保留 $O(M * R)$个状态#footnote[之所以需要保留 $O(M * R)$ 个状态，是因为 Coordinator要记录这 $M * R$ 个中间数据保存的位置与状态。每个 Map 任务完成后，会产生 R 个针对不同 Reduce 任务的分区文件，Coordinator 必须维护这些信息的映射，以便在 Reduce 阶段告知 Worker 去哪些机器的本地磁盘拉取数据。]。
 
 对于因为各种原因#footnote[比如硬盘损坏，比如高温降频等]导致任务处理时间延长的 Worker，Coordinator 可以将该任务重新分配给其他的 Worker，两个机器同时运行，哪个先返回结果就采纳哪个的结果。通过这种机制，可以显著减少完成大型 MapReduce 的时间。
 

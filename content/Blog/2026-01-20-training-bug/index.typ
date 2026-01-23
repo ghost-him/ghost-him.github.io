@@ -1,4 +1,4 @@
-#import "../index.typ": template, tufted
+#import "../../index.typ": template, tufted
 #show: template.with(title: "training bug record")
 
 
