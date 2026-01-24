@@ -14,6 +14,9 @@
 ## ✍️ 最近动态 / Latest Blog Posts
 
 <!-- BLOG-POST-LIST:START -->
+- [6.5840 2025 Spring Lab2 [Study]](https://ghost-him.github.io/Study/2026-01-22-6.5840-lab2/)
+- [6.5840 2025 Spring Lab1 [Study]](https://ghost-him.github.io/Study/2026-01-21-6.5840-lab1/)
+- [training bug record [Blog]](https://ghost-him.github.io/Blog/2026-01-20-training-bug/)
 <!-- BLOG-POST-LIST:END -->
 
 这是一个基于 [Typst](https://typst.app/) 和 [Tufted](https://github.com/vsheg/tufted) 的静态网站构建模板，手把手教你搭建简洁、美观的个人网站、博客和简历设计。
