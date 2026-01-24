@@ -45,6 +45,7 @@ import sys
 import threading
 import time
 import webbrowser
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
@@ -63,6 +64,8 @@ CONTENT_DIR = Path("content")  # 源文件目录
 SITE_DIR = Path("_site")  # 输出目录
 ASSETS_DIR = Path("assets")  # 静态资源目录
 CONFIG_FILE = Path("config.typ")  # 全局配置文件
+BASE_URL = "https://ghost-him.github.io"  # 网站基地址，用于 RSS
+RSS_FILE = SITE_DIR / "feed.xml"  # RSS 输出文件
 
 
 # ============================================================================
@@ -652,6 +655,110 @@ def copy_content_assets(force: bool = False) -> bool:
         return False
 
 
+def generate_rss() -> bool:
+    """
+    生成 RSS 订阅源文件供 blog-post-workflow 使用。
+    从 content/Blog/, content/Study/, content/Thoughts/ 目录下的文件夹名提取日期，从 index.typ 提取标题。
+    """
+    categories = ["Blog", "Study", "Thoughts"]
+    
+    # 检查是否至少有一个目录存在
+    if not any((CONTENT_DIR / cat).exists() for cat in categories):
+        return True
+
+    print("正在生成 RSS 订阅源...")
+    posts = []
+
+    for cat in categories:
+        cat_dir = CONTENT_DIR / cat
+        if not cat_dir.exists():
+            continue
+
+        # 遍历各目录下子文件夹
+        for item in cat_dir.iterdir():
+            if not item.is_dir():
+                continue
+
+            # 从文件夹名提取日期 (例如 2026-01-20-training-bug -> 2026-01-20)
+            date_match = re.search(r"(\d{4}-\d{2}-\d{2})", item.name)
+            if not date_match:
+                continue
+
+            date_str = date_match.group(1)
+            try:
+                # 转换为日期对象以便排序
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+            except ValueError:
+                continue
+
+            # 尝试从 index.typ 中提取标题
+            index_file = item / "index.typ"
+            title = item.name  # 默认标题为文件夹名
+            if index_file.exists():
+                try:
+                    content = index_file.read_text(encoding="utf-8")
+                    # 匹配 #show: template.with(title: "...") 或 = Title
+                    title_match = re.search(r'title:\s*"([^"]+)"', content)
+                    if not title_match:
+                        title_match = re.search(r"^=\s+(.+)$", content, re.MULTILINE)
+
+                    if title_match:
+                        title = title_match.group(1).strip()
+                except Exception:
+                    pass
+
+            # 构建 URL (假设输出结构为 /Category/folder-name/index.html)
+            category_prefix = f" [{cat}]"
+            relative_link = f"/{cat}/{item.name}/"
+            full_link = f"{BASE_URL}{relative_link}"
+
+            posts.append(
+                {
+                    "title": f"{title}{category_prefix}",
+                    "link": full_link,
+                    "date": date_obj,
+                    "date_rfc822": date_obj.strftime("%a, %d %b %Y 00:00:00 +0000"),
+                }
+            )
+
+    # 按日期降序排序
+    posts.sort(key=lambda x: x["date"], reverse=True)
+
+    # 构建 RSS XML
+    rss_items = []
+    for post in posts:
+        item_xml = f"""    <item>
+      <title><![CDATA[{post['title']}]]></title>
+      <link>{post['link']}</link>
+      <guid isPermaLink="true">{post['link']}</guid>
+      <pubDate>{post['date_rfc822']}</pubDate>
+    </item>"""
+        rss_items.append(item_xml)
+
+    now_rfc822 = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
+
+    rss_content = f"""<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<channel>
+  <title>ghost-him's Blog</title>
+  <link>{BASE_URL}</link>
+  <description>Recent blog posts from ghost-him</description>
+  <language>zh-cn</language>
+  <lastBuildDate>{now_rfc822}</lastBuildDate>
+  <atom:link href="{BASE_URL}/feed.xml" rel="self" type="application/rss+xml" />
+{"\n".join(rss_items)}
+</channel>
+</rss>"""
+
+    try:
+        RSS_FILE.write_text(rss_content, encoding="utf-8")
+        print(f"  ✅ RSS 订阅源生成成功: {RSS_FILE}")
+        return True
+    except Exception as e:
+        print(f"  ❌ 生成 RSS 订阅源失败: {e}")
+        return False
+
+
 def clean() -> bool:
     """
     清理生成的文件。
@@ -785,6 +892,7 @@ def build(force: bool = False):
 
     results.append(copy_assets())
     results.append(copy_content_assets(force))
+    results.append(generate_rss())
 
     print("-" * 60)
     if all(results):
