@@ -1,5 +1,5 @@
 #import "../../index.typ": template, tufted
-#show: template.with(title: "training bug record")
+#show: template.with(title: "单 epoch 训练时间逐渐变长的 bug 记录")
 
 
 = 单 epoch 训练时间逐渐变长的 bug 记录

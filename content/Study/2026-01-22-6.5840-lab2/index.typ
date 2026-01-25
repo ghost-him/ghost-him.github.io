@@ -1,5 +1,5 @@
 #import "../../index.typ": template, tufted
-#show: template.with(title: "6.5840 2025 Spring Lab2")
+#show: template.with(title: "记录一下 6.5840 2025 Spring Lab2 的过程")
 
 
 = 记录一下 6.5840 2025 Spring Lab2 的过程
