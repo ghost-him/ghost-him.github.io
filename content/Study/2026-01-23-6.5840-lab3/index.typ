@@ -214,6 +214,8 @@ $ "broadcastTime" lt.double "electionTimeout" lt.double "MTBF" $
 
 == 我的实现
 
+=== 任务A
+
 读起来还是很容易的，但是实现起代码来还是会有很多的困难的，可以发现我之前的理解还是不够的深。
 
 比如这个选举超时时间，原来就是心跳的超时时间，这个是随机的。我一开始以为心跳超时时间是固定的，然后选举超时的时间是随机的。所以当时还想到在正式选举前，先使用随机的Sleep来来防止选举瓜分的情况。后来pass测试用例后，问了一下ai，才知道==。
@@ -222,7 +224,7 @@ $ "broadcastTime" lt.double "electionTimeout" lt.double "MTBF" $
 
 这个是我一开始的实现的性能：
 
-```
+```bash
 Test (3A): initial election (reliable network)...
   ... Passed --  time  3.5s #peers 3 #RPCs    60 #Ops    0
 Test (3A): election after network failure (reliable network)...
@@ -235,7 +237,7 @@ ok      6.5840/raft1    14.571s
 
 这个是优化后的：
 
-```
+```bash
 Test (3A): initial election (reliable network)...
   ... Passed --  time  3.1s #peers 3 #RPCs    46 #Ops    0
 Test (3A): election after network failure (reliable network)...
@@ -250,3 +252,45 @@ ok      6.5840/raft1    12.939s
 
 现在还没写完整个实验，剩下的等我写完实验以后再写
 
+=== 任务B
+
+经过我3天的奋战，终于把任务B写出来了。这个任务看起来很简单，逻辑看起来也很简单，但是花了我蛮长时间的。我感觉一个最大的问题就是有些细节不太能直接想出来，得一直看运行的时序图，找到代码中的小的逻辑bug，还有并发的bug#footnote[还是rust在并发方面的心智负担比较低，rust在编译期就能杜绝各种数据竞争什么的，心智负担特别低。写这个go又让我想起来之前写cpp时的痛苦经历QAQ]。所以我期间也在一直看论文，看笔记，最后实在有些不确定的部分，我就使用ai来分析了一下。
+
+这个任务B主要的内容就是实现日志的复制。日志的复现主要有两个个任务：
++ 实现选举限制，即：简单一致性 @security_election
++ 根据日志复制中的相关的逻辑，完善两个RPC的发送与处理逻辑
++ 实现Start函数。需要注意这个函数的特性：需要立即返回的，而不是像论文中一样要阻塞等到日志条目被提交才返回结果。我一开始没注意到这个问题，导致卡了很久QAQ
+
+这里还有一个需要注意的：当服务器判断出来可以提交log时，需要通过 applyCh 导出。而这个 applyCh 在Make中传入了，但是默认没有被添加到结构体中！！！这个也导致我卡了很久，我让ai给我思路的时候才发现有这个东西。我说我的思路和代码基础都对的，但是为什么我的测试一个都没通过(╯‵□′)╯︵┻━┻
+
+经过3天的折磨，最后也是把这个Lab3B写出来了，hard果然非常的hard /\_\\
+
+最后这个是我的运行结果：
+
+```bash
+ghost-him@lab ~/6/s/raft1 (master) [1]> go test -run 3B -race
+Test (3B): basic agreement (reliable network)...
+  ... Passed --  time  0.9s #peers 3 #RPCs    14 #Ops    0
+Test (3B): RPC byte count (reliable network)...
+  ... Passed --  time  2.0s #peers 3 #RPCs    46 #Ops    0
+Test (3B): test progressive failure of followers (reliable network)...
+  ... Passed --  time  4.9s #peers 3 #RPCs   108 #Ops    0
+Test (3B): test failure of leaders (reliable network)...
+  ... Passed --  time  6.8s #peers 3 #RPCs   214 #Ops    0
+Test (3B): agreement after follower reconnects (reliable network)...
+  ... Passed --  time  4.7s #peers 3 #RPCs    93 #Ops    0
+Test (3B): no agreement if too many followers disconnect (reliable network)...
+  ... Passed --  time  4.1s #peers 5 #RPCs   172 #Ops    0
+Test (3B): concurrent Start()s (reliable network)...
+  ... Passed --  time  0.5s #peers 3 #RPCs    14 #Ops    0
+Test (3B): rejoin of partitioned leader (reliable network)...
+  ... Passed --  time  4.9s #peers 3 #RPCs   148 #Ops    0
+Test (3B): leader backs up quickly over incorrect follower logs (reliable network)...
+  ... Passed --  time 16.1s #peers 5 #RPCs  2952 #Ops    0
+Test (3B): RPC counts aren't too high (reliable network)...
+  ... Passed --  time  2.0s #peers 3 #RPCs    52 #Ops    0
+PASS
+ok      6.5840/raft1    47.983s
+```
+
+除了 Test (3B): leader backs up quickly over incorrect follower logs (reliable network) 这个测试花的时间比较长，其他的速度和RPC数都比官方好一些。这里其实是可以用论文中提到的优化方法的，但是本着代码和人有一个能跑就行的原则，这里就先不做优化了😋
