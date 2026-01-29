@@ -20,6 +20,7 @@ html {
 
 /* Sticky footer layout */
 body {
+    margin: 0 auto;
     min-height: 100%;
     display: flex;
     flex-direction: column;
@@ -28,10 +29,12 @@ body {
 /* Main content fills remaining space */
 body>article {
     flex: 1 0 auto;
+    padding: 4.5rem 0 1.5rem;
 }
 
 /* Footer stays at bottom */
 body>footer {
+    margin-top: auto;
     flex-shrink: 0;
 }
 
@@ -39,18 +42,40 @@ img,
 svg {
     max-width: 100%;
     max-height: 80vh;
+    height: auto;
+    width: auto;
 }
 
-/* Constrain images within section to text width unless in fullwidth */
-section>figure:not(.fullwidth)>img,
-section>figure:not(.fullwidth)>svg {
-    max-width: 100%;
-}
+/* 
+   CONTENT ALIGNMENT & CENTERING 
+   Shared logic for images, SVGs
+*/
 
-/* Images directly in section (not in figure) should be constrained */
+/* 1. Content centered in the main text column (55% width) */
 section>img,
 section>svg {
     max-width: 55%;
+    position: relative;
+    left: 27.5%;
+    transform: translateX(-50%);
+}
+
+section>img,
+section>svg {
+    display: block;
+}
+
+/* 2. Content centered in figures (100% of figure width) */
+section>figure:not(.fullwidth)>img,
+section>figure:not(.fullwidth)>svg {
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+section>figure:not(.fullwidth)>img,
+section>figure:not(.fullwidth)>svg {
+    display: block;
 }
 
 /* Fullwidth content */
@@ -244,13 +269,19 @@ QUOTE BLOCKS
 
 /* Quote blocks with left border */
 div[style*="border-inline-start"] {
-    width: 55%;
+    width: 55% !important;
     font-size: 1.4rem;
     line-height: 2.2rem;
     clear: none;
     margin: 1.5em 0;
     padding-right: 0;
     box-sizing: border-box;
+}
+
+/* Nested quote blocks should take full width of parent */
+div[style*="border-inline-start"] div[style*="border-inline-start"] {
+    width: 100% !important;
+    margin: 0.5em 0;
 }
 
 div[style*="border-inline-start"] p {
@@ -272,23 +303,25 @@ TABLES
 
 table {
     width: auto;
-    margin: 1.5em 0;
+    margin: 1.5em auto;
     border-collapse: collapse;
     font-size: 1.4rem;
-    line-height: 1.6;
+    line-height: 1.2;
 }
 
-figure table {
-    width: 100%;
-}
-
+/* Naked tables behave like the main text column */
 section>table {
-    width: 55%;
+    width: auto;
+    position: relative;
+    left: 27.5%;
+    transform: translateX(-50%);
+    margin-left: 0;
+    margin-right: 0;
 }
 
 table th,
 table td {
-    padding: 0.5em 0.8em;
+    padding: 0.5em 0.7em;
     border: 1px solid #ccc;
     text-align: left;
     vertical-align: top;
@@ -309,6 +342,79 @@ table tbody tr:hover {
     background-color: #f0f0f0;
 }
 
+@media (max-width: 760px) {
+    table {
+        font-size: 1.2rem;
+    }
+
+    /* Reset naked table positioning on mobile */
+    section>table {
+        left: 0;
+        transform: none;
+        margin: 1.5em auto;
+    }
+
+    figure {
+        margin: 1.5em auto;
+    }
+
+    table th,
+    table td {
+        padding: 0.4em 0.6em;
+    }
+}
+
+
+/*******************************************************************************
+MATH NOTATION
+*******************************************************************************/
+
+/* Block math equations - display as block, centered */
+figure[role="math"] {
+    display: block;
+    width: 55%;
+    text-align: center;
+    margin: 1em 0;
+    padding: 0.5em 0;
+    font-size: 1.4em;
+    line-height: 1.2;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+/* Math content wrapper - prevent shrinking */
+figure[role="math"]>* {
+    display: inline-block;
+    min-width: max-content;
+    text-align: center;
+}
+
+figure>figure[role="math"] {
+    display: block;
+    width: 100%;
+    text-align: center;
+    margin: 0 auto;
+    padding: 0.5em 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+/* Math content wrapper for nested figures */
+figure>figure[role="math"]>* {
+    display: inline-block;
+    min-width: max-content;
+    text-align: center;
+}
+
+/* Inline math - smaller size, aligned with text baseline */
+span[role="math"] {
+    display: inline-block;
+    vertical-align: baseline;
+    margin: 0 0.1em;
+    text-indent: 0;
+}
+
 
 /*******************************************************************************
 RESPONSIVE LAYOUT
@@ -316,23 +422,67 @@ RESPONSIVE LAYOUT
 
 @media (max-width: 760px) {
 
-    /* Display margin notes inline on narrow screens */
+    /* Margin notes render inline on narrow screens */
     .marginnote {
         display: block;
         float: none;
         position: static;
-        padding-left: 1.2rem;
+        padding: 0.85rem 1rem;
         width: 100%;
-        margin-top: 1em;
-        margin-bottom: 1em;
+        margin: 0.5rem 0 1.25rem;
+        background: var(--theme-pre-bg);
+        border: 1px solid var(--theme-pre-border);
+        border-radius: var(--radius-sm);
+        box-sizing: border-box;
     }
 
-    /* Limit image width in margin notes */
+    .marginnote.is-expanded {
+        display: block;
+    }
+
+    /* Footnote margin notes collapse by default */
+    .footnote-ref+.marginnote {
+        display: none;
+    }
+
+    .footnote-ref+.marginnote.is-expanded {
+        display: block;
+    }
+
+    /* Limit image size inside expanded margin notes */
     .marginnote img,
     .marginnote svg {
-        max-width: calc(760px / 3);
-        margin: 0 auto;
+        max-width: 100%;
+        max-height: 50vh;
+        margin: 0.4rem auto;
         display: block;
+    }
+
+    sup.footnote-ref {
+        line-height: 1;
+        top: -0.2em;
+    }
+
+    sup.footnote-ref>a.footnote-ref-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        line-height: 1;
+        min-width: 1.6em;
+        height: 1.6em;
+        padding: 0 0.4em;
+        margin: 0 0.15em;
+        border-radius: 999px;
+        border: 1px solid var(--theme-pre-border);
+        background: var(--theme-pre-bg);
+        color: var(--theme-text);
+        appearance: none;
+        cursor: pointer;
+    }
+
+    sup.footnote-ref>a.footnote-ref-link.is-expanded {
+        background: var(--highlight-weak);
     }
 
     /* Enable hyphenation on narrow screens */
@@ -342,7 +492,7 @@ RESPONSIVE LAYOUT
 
     /* Full-width quote blocks on mobile */
     div[style*="border-inline-start"] {
-        width: 100%;
+        width: 100% !important;
     }
 
     /* Full-width code blocks on mobile */
@@ -350,18 +500,14 @@ RESPONSIVE LAYOUT
         width: 100%;
     }
 
-    /* Full-width tables on mobile */
-    section>table {
-        width: 100%;
-    }
-
-    table {
-        font-size: 1.2rem;
-    }
-
-    table th,
-    table td {
-        padding: 0.4em 0.6em;
+    /* Full-width tables and images on mobile */
+    section>img,
+    section>svg {
+        max-width: 100%;
+        left: 0;
+        transform: none;
+        margin-left: auto;
+        margin-right: auto;
     }
 
     /* Math equations take full width on mobile */
@@ -460,55 +606,13 @@ a.footnote-ref-link {
     text-shadow: none !important;
 }
 
-
-/*******************************************************************************
-MATH NOTATION
-*******************************************************************************/
-
-/* Block math equations - display as block, centered */
-figure[role="math"] {
-    display: block;
-    width: 55%;
-    text-align: center;
-    margin: 1em 0;
-    padding: 0.5em 0;
-    font-size: 1.4em;
-    line-height: 1.2;
-    overflow-x: auto;
-    overflow-y: hidden;
+@media (min-width: 761px) {
+    sup.marginnote-ref {
+        display: none;
+    }
 }
 
-/* Math content wrapper - prevent shrinking */
-figure[role="math"]>* {
-    display: inline-block;
-    min-width: max-content;
-    text-align: center;
-}
 
-figure>figure[role="math"] {
-    display: block;
-    width: 100%;
-    text-align: center;
-    margin: 0 auto;
-    padding: 0.5em 0;
-    max-width: 100%;
-    overflow-x: auto;
-    overflow-y: hidden;
-}
-
-/* Math content wrapper for nested figures */
-figure>figure[role="math"]>* {
-    display: inline-block;
-    min-width: max-content;
-    text-align: center;
-}
-
-/* Inline math - smaller size, aligned with text baseline */
-span[role="math"] {
-    display: inline-block;
-    vertical-align: baseline;
-    margin: 0 0.1em;
-}
 
 /*******************************************************************************
 POST TILES

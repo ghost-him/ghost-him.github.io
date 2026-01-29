@@ -267,7 +267,7 @@ ok      6.5840/raft1    12.939s
 
 最后这个是我的运行结果：
 
-```bash
+```
 ghost-him@lab ~/6/s/raft1 (master) [1]> go test -run 3B -race
 Test (3B): basic agreement (reliable network)...
   ... Passed --  time  0.9s #peers 3 #RPCs    14 #Ops    0
@@ -294,3 +294,12 @@ ok      6.5840/raft1    47.983s
 ```
 
 除了 Test (3B): leader backs up quickly over incorrect follower logs (reliable network) 这个测试花的时间比较长，其他的速度和RPC数都比官方好一些。这里其实是可以用论文中提到的优化方法的，但是本着代码和人有一个能跑就行的原则，这里就先不做优化了😋
+
+
+=== 任务C
+
+任务c要求实现持久化的存储。这里是先通过encoder与decoder将变量变成字节流，然后将字节流做一个保存。这里写的代码中，要注意Encode与Decode与顺序必须是一样的，比如Encode的顺序是A, B, C，那么Decode的顺序也必须是A, B, C。而且如果使用了labgob（还有原生的gob），那么它只能导出以大写字母开头的字段。
+
+使用Decode获取保存的数据时，要传入指针。
+
+没想到任务C要求优化nextIndex了。本来想着摸鱼呢。不过也能发现，如果不实现这个功能，那么测试的时候会比较的长。所以还是开始实现吧。任务中给出了3个变量：XTerm, XIndex, XLen，其含义分别是：冲突条目的任期，该任期中第一个条目的索引，当前接收者的日志的长度。

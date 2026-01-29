@@ -13,6 +13,7 @@ build/
 uv.lock
 
 # IDE
+.vscode/
 *.swp
 *.swo
 

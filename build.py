@@ -1,8 +1,5 @@
 # /// script
-# requires-python = ">=3.6"
-# dependencies = [
-#     "watchdog",
-# ]
+# requires-python = ">=3.10"
 # ///
 
 """
@@ -36,7 +33,6 @@ Tufted Blog Template 构建脚本
 """
 
 import argparse
-import hashlib
 import os
 import re
 import shutil
@@ -44,17 +40,11 @@ import subprocess
 import sys
 import threading
 import time
-import webbrowser
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
-from typing import Dict, List, Optional, Set
-
-try:
-    from watchdog.observers import Observer
-    from watchdog.events import FileSystemEventHandler
-    WATCHDOG_AVAILABLE = True
-except ImportError:
-    WATCHDOG_AVAILABLE = False
+from typing import Literal
 
 # ============================================================================
 # 配置
@@ -64,8 +54,73 @@ CONTENT_DIR = Path("content")  # 源文件目录
 SITE_DIR = Path("_site")  # 输出目录
 ASSETS_DIR = Path("assets")  # 静态资源目录
 CONFIG_FILE = Path("config.typ")  # 全局配置文件
-BASE_URL = "https://ghost-him.github.io"  # 网站基地址，用于 RSS
-RSS_FILE = SITE_DIR / "feed.xml"  # RSS 输出文件
+
+
+@dataclass
+class BuildStats:
+    """构建统计信息"""
+
+    success: int = 0
+    skipped: int = 0
+    failed: int = 0
+
+    def format_summary(self) -> str:
+        """格式化统计摘要"""
+        parts = []
+        if self.success > 0:
+            parts.append(f"编译: {self.success}")
+        if self.skipped > 0:
+            parts.append(f"跳过: {self.skipped}")
+        if self.failed > 0:
+            parts.append(f"失败: {self.failed}")
+        return ", ".join(parts) if parts else "无文件需要处理"
+
+    @property
+    def has_failures(self) -> bool:
+        """是否存在失败"""
+        return self.failed > 0
+
+
+class HTMLMetadataParser(HTMLParser):
+    """
+    从 HTML 文件中提取元数据的解析器。
+
+    解析以下元数据：
+    - lang: 从 <html lang="..."> 属性获取
+    - title: 从 <title> 标签获取
+    - description: 从 <meta name="description" content="..."> 获取
+    - link: 从 <link rel="canonical" href="..."> 获取
+    - date: 从 <meta name="date" content="..."> 获取
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.metadata = {"title": ""}
+        self._in_title = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]):
+        attrs_dict = {k: v for k, v in attrs if v}
+
+        match tag:
+            case "html":
+                self.metadata["lang"] = attrs_dict.get("lang", "")
+            case "title":
+                self._in_title = True
+            case "meta":
+                name = attrs_dict.get("name", "")
+                if name in {"description", "date"}:
+                    self.metadata[name] = attrs_dict.get("content", "")
+            case "link":
+                if attrs_dict.get("rel") == "canonical":
+                    self.metadata["link"] = attrs_dict.get("href", "")
+
+    def handle_endtag(self, tag: str):
+        if tag == "title":
+            self._in_title = False
+
+    def handle_data(self, data: str):
+        if self._in_title:
+            self.metadata["title"] += data
 
 
 # ============================================================================
@@ -128,7 +183,7 @@ def is_dep_file(path: Path) -> bool:
         return True
 
 
-def find_typ_dependencies(typ_file: Path) -> Set[Path]:
+def find_typ_dependencies(typ_file: Path) -> set[Path]:
     """
     解析 .typ 文件中的依赖（通过 #import 和 #include 导入的文件）。
 
@@ -139,9 +194,9 @@ def find_typ_dependencies(typ_file: Path) -> Set[Path]:
         typ_file: .typ 文件路径
 
     返回:
-        Set[Path]: 依赖的 .typ 文件路径集合
+        set[Path]: 依赖的 .typ 文件路径集合
     """
-    dependencies: Set[Path] = set()
+    dependencies: set[Path] = set()
 
     try:
         content = typ_file.read_text(encoding="utf-8")
@@ -185,7 +240,7 @@ def find_typ_dependencies(typ_file: Path) -> Set[Path]:
     return dependencies
 
 
-def get_all_dependencies(typ_file: Path, visited: Optional[Set[Path]] = None) -> Set[Path]:
+def get_all_dependencies(typ_file: Path, visited: set[Path] | None = None) -> set[Path]:
     """
     递归获取 .typ 文件的所有依赖（包括传递依赖）。
 
@@ -194,7 +249,7 @@ def get_all_dependencies(typ_file: Path, visited: Optional[Set[Path]] = None) ->
         visited: 已访问的文件集合（用于避免循环依赖）
 
     返回:
-        Set[Path]: 所有依赖文件路径集合
+        set[Path]: 所有依赖文件路径集合
     """
     if visited is None:
         visited = set()
@@ -205,7 +260,7 @@ def get_all_dependencies(typ_file: Path, visited: Optional[Set[Path]] = None) ->
         return set()
     visited.add(abs_path)
 
-    all_deps: Set[Path] = set()
+    all_deps: set[Path] = set()
     direct_deps = find_typ_dependencies(typ_file)
 
     for dep in direct_deps:
@@ -217,7 +272,7 @@ def get_all_dependencies(typ_file: Path, visited: Optional[Set[Path]] = None) ->
     return all_deps
 
 
-def needs_rebuild(source: Path, target: Path, extra_deps: Optional[List[Path]] = None) -> bool:
+def needs_rebuild(source: Path, target: Path, extra_deps: list[Path] | None = None) -> bool:
     """
     判断是否需要重新构建。
 
@@ -268,12 +323,12 @@ def needs_rebuild(source: Path, target: Path, extra_deps: Optional[List[Path]] =
     return False
 
 
-def find_common_dependencies() -> List[Path]:
+def find_common_dependencies() -> list[Path]:
     """
     查找所有文件的公共依赖（如 config.typ）。
 
     返回:
-        List[Path]: 公共依赖文件路径列表
+        list[Path]: 公共依赖文件路径列表
     """
     common_deps = []
 
@@ -292,110 +347,17 @@ def find_common_dependencies() -> List[Path]:
     return common_deps
 
 
-class BuildEventHandler(FileSystemEventHandler):
-    """
-    文件系统事件处理器，用于检测文件内容变化并触发构建。
-    使用定时器防抖，只有在文件停止变化一段时间后才触发。
-    通过计算文件哈希来检测内容变化，避免误触发。
-    """
-
-    def __init__(self, build_func, delay: float = 10.0):
-        self.build_func = build_func
-        self.delay = delay
-        self.timer = None
-        self.lock = threading.Lock()
-        self.file_hashes: Dict[Path, str] = {}  # 存储文件的哈希值
-
-    def get_file_hash(self, file_path: Path) -> Optional[str]:
-        """计算文件的 SHA256 哈希值"""
-        try:
-            with open(file_path, 'rb') as f:
-                return hashlib.sha256(f.read()).hexdigest()
-        except (OSError, IOError):
-            return None
-
-    def on_modified(self, event):
-        if event.is_directory:
-            return
-        self.handle_file_event(event.src_path, 'modified')
-
-    def on_created(self, event):
-        if event.is_directory:
-            return
-        self.handle_file_event(event.src_path, 'created')
-
-    def on_deleted(self, event):
-        if event.is_directory:
-            return
-        self.handle_file_event(event.src_path, 'deleted')
-
-    def handle_file_event(self, src_path: str, event_type: str):
-        file_path = Path(src_path).resolve()
-        project_root = Path.cwd().resolve()
-
-        # 忽略 _site 目录下的变化（构建输出）
-        try:
-            if file_path.relative_to(project_root / SITE_DIR):
-                return
-        except ValueError:
-            pass
-
-        # 忽略隐藏文件/目录（如 .git, .vscode）
-        if any(part.startswith(".") for part in file_path.parts):
-            return
-
-        # 只有特定的文件类型触发构建
-        valid_extensions = {".typ", ".md", ".bib", ".css", ".js", ".png", ".jpg", ".jpeg", ".svg"}
-        if file_path.suffix.lower() not in valid_extensions:
-            return
-
-        # 根据事件类型处理
-        if event_type == 'deleted':
-            # 文件删除，移除哈希记录
-            if file_path in self.file_hashes:
-                del self.file_hashes[file_path]
-            self.schedule_build()
-        elif event_type in ('created', 'modified'):
-            # 计算新哈希
-            new_hash = self.get_file_hash(file_path)
-            if new_hash is None:
-                return  # 文件无法读取，跳过
-
-            old_hash = self.file_hashes.get(file_path)
-            if new_hash != old_hash:
-                # 内容发生变化，更新哈希并触发构建
-                self.file_hashes[file_path] = new_hash
-                self.schedule_build()
-
-    def schedule_build(self):
-        """调度构建，使用防抖机制"""
-        with self.lock:
-            if self.timer:
-                self.timer.cancel()
-            self.timer = threading.Timer(self.delay, self.trigger_build)
-            self.timer.start()
-
-    def trigger_build(self):
-        with self.lock:
-            self.timer = None 
-        print("\n" + "=" * 40)
-        print(f"检测到文件内容变化且已稳定（超过 {self.delay} 秒无新变化），正在构建...")
-        print("=" * 40)
-        self.build_func()
-        print("\n等待更多变化...")
-
-
 # ============================================================================
 # 辅助函数
 # ============================================================================
 
 
-def find_typ_files() -> List[Path]:
+def find_typ_files() -> list[Path]:
     """
     查找 content/ 目录下所有 .typ 文件，排除路径中包含以下划线开头的目录的文件。
 
     返回:
-        List[Path]: .typ 文件路径列表
+        list[Path]: .typ 文件路径列表
     """
     typ_files = []
     for typ_file in CONTENT_DIR.rglob("*.typ"):
@@ -406,35 +368,21 @@ def find_typ_files() -> List[Path]:
     return typ_files
 
 
-def get_html_output_path(typ_file: Path) -> Path:
+def get_file_output_path(typ_file: Path, type: Literal["pdf", "html"]) -> Path:
     """
-    获取 .typ 文件对应的 HTML 输出路径。
+    获取 .typ 文件的输出路径。
 
     参数:
         typ_file: .typ 文件路径 (相对于 content/)
 
     返回:
-        Path: HTML 文件输出路径 (在 _site/ 目录下)
+        Path: 文件输出路径 (在 _site/ 目录下)
     """
     relative_path = typ_file.relative_to(CONTENT_DIR)
-    return SITE_DIR / relative_path.with_suffix(".html")
+    return SITE_DIR / relative_path.with_suffix(f".{type}")
 
 
-def get_pdf_output_path(typ_file: Path) -> Path:
-    """
-    获取 .typ 文件对应的 PDF 输出路径。
-
-    参数:
-        typ_file: .typ 文件路径 (相对于 content/)
-
-    返回:
-        Path: PDF 文件输出路径 (在 _site/ 目录下)
-    """
-    relative_path = typ_file.relative_to(CONTENT_DIR)
-    return SITE_DIR / relative_path.with_suffix(".pdf")
-
-
-def run_typst_command(args: List[str]) -> bool:
+def run_typst_command(args: list[str]) -> bool:
     """
     运行 typst 命令。
 
@@ -464,13 +412,59 @@ def run_typst_command(args: List[str]) -> bool:
 # ============================================================================
 
 
-def build_html(force: bool = False):
+def _compile_files(
+    files: list[Path],
+    force: bool,
+    common_deps: list[Path],
+    get_output_path_func,
+    build_args_func,
+) -> BuildStats:
+    """
+    通用文件编译函数，减少重复代码。
+
+    参数:
+        files: 要编译的文件列表
+        force: 是否强制重建
+        common_deps: 公共依赖列表
+        get_output_path_func: 获取输出路径的函数
+        build_args_func: 构建编译参数的函数
+
+    返回:
+        BuildStats: 构建统计信息
+    """
+    stats = BuildStats()
+
+    for typ_file in files:
+        output_path = get_output_path_func(typ_file)
+
+        # 增量编译检查
+        if not force and not needs_rebuild(typ_file, output_path, common_deps):
+            stats.skipped += 1
+            continue
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # 构建编译参数
+        args = build_args_func(typ_file, output_path)
+
+        if run_typst_command(args):
+            stats.success += 1
+        else:
+            print(f"  ❌ {typ_file} 编译失败")
+            stats.failed += 1
+
+    return stats
+
+
+def build_html(force: bool = False) -> bool:
     """
     编译所有 .typ 文件为 HTML（文件名中包含 PDF 的除外）。
 
     参数:
         force: 是否强制重建所有文件
     """
+    SITE_DIR.mkdir(parents=True, exist_ok=True)
+
     typ_files = find_typ_files()
 
     # 排除标记为 PDF 的文件
@@ -485,22 +479,26 @@ def build_html(force: bool = False):
     # 获取公共依赖
     common_deps = find_common_dependencies()
 
-    success_count = 0
-    skip_count = 0
-    fail_count = 0
+    def build_html_args(typ_file: Path, output_path: Path) -> list[str]:
+        """构建 HTML 编译参数"""
+        try:
+            rel_path = typ_file.relative_to(CONTENT_DIR)
 
-    for typ_file in html_files:
-        html_output = get_html_output_path(typ_file)
+            if rel_path.name == "index.typ":
+                # index.typ uses the parent directory name as the path
+                # content/Blog/index.typ -> "Blog"
+                # content/index.typ -> "" (Homepage)
+                page_path = rel_path.parent.as_posix()
+                if page_path == ".":
+                    page_path = ""
+            else:
+                # Common files use the filename as the path
+                # content/about.typ -> "about"
+                page_path = rel_path.with_suffix("").as_posix()
+        except ValueError:
+            page_path = ""
 
-        # 增量编译检查
-        if not force and not needs_rebuild(typ_file, html_output, common_deps):
-            skip_count += 1
-            continue
-
-        html_output.parent.mkdir(parents=True, exist_ok=True)
-
-        # 编译 HTML
-        args = [
+        return [
             "compile",
             "--root",
             ".",
@@ -510,36 +508,33 @@ def build_html(force: bool = False):
             "html",
             "--format",
             "html",
+            "--input",
+            f"page-path={page_path}",
             str(typ_file),
-            str(html_output),
+            str(output_path),
         ]
 
-        if run_typst_command(args):
-            success_count += 1
-        else:
-            print(f"  ❌ {typ_file} 编译失败")
-            fail_count += 1
+    stats = _compile_files(
+        html_files,
+        force,
+        common_deps,
+        lambda typ_file: get_file_output_path(typ_file, "html"),
+        build_html_args,
+    )
 
-    status_parts = []
-    if success_count > 0:
-        status_parts.append(f"编译: {success_count}")
-    if skip_count > 0:
-        status_parts.append(f"跳过: {skip_count}")
-    if fail_count > 0:
-        status_parts.append(f"失败: {fail_count}")
-
-    status_str = ", ".join(status_parts) if status_parts else "无文件需要处理"
-    print(f"✅ HTML 构建完成。{status_str}")
-    return fail_count == 0
+    print(f"✅ HTML 构建完成。{stats.format_summary()}")
+    return not stats.has_failures
 
 
-def build_pdf(force: bool = False):
+def build_pdf(force: bool = False) -> bool:
     """
     编译文件名包含 "PDF" 的 .typ 文件为 PDF。
 
     参数:
         force: 是否强制重建所有文件
     """
+    SITE_DIR.mkdir(parents=True, exist_ok=True)
+
     typ_files = find_typ_files()
     pdf_files = [f for f in typ_files if "pdf" in f.stem.lower()]
 
@@ -551,40 +546,28 @@ def build_pdf(force: bool = False):
     # 获取公共依赖
     common_deps = find_common_dependencies()
 
-    success_count = 0
-    skip_count = 0
-    fail_count = 0
+    def build_pdf_args(typ_file: Path, output_path: Path) -> list[str]:
+        """构建 PDF 编译参数"""
+        return [
+            "compile",
+            "--root",
+            ".",
+            "--font-path",
+            str(ASSETS_DIR),
+            str(typ_file),
+            str(output_path),
+        ]
 
-    for typ_file in pdf_files:
-        pdf_output = get_pdf_output_path(typ_file)
+    stats = _compile_files(
+        pdf_files,
+        force,
+        common_deps,
+        lambda typ_file: get_file_output_path(typ_file, "pdf"),
+        build_pdf_args,
+    )
 
-        # 增量编译检查
-        if not force and not needs_rebuild(typ_file, pdf_output, common_deps):
-            skip_count += 1
-            continue
-
-        pdf_output.parent.mkdir(parents=True, exist_ok=True)
-
-        # 编译 PDF
-        args = ["compile", "--root", ".", "--font-path", str(ASSETS_DIR), str(typ_file), str(pdf_output)]
-
-        if run_typst_command(args):
-            success_count += 1
-        else:
-            print(f"  ❌ {typ_file} 编译失败")
-            fail_count += 1
-
-    status_parts = []
-    if success_count > 0:
-        status_parts.append(f"编译: {success_count}")
-    if skip_count > 0:
-        status_parts.append(f"跳过: {skip_count}")
-    if fail_count > 0:
-        status_parts.append(f"失败: {fail_count}")
-
-    status_str = ", ".join(status_parts) if status_parts else "无文件需要处理"
-    print(f"✅ PDF 构建完成。{status_str}")
-    return fail_count == 0
+    print(f"✅ PDF 构建完成。{stats.format_summary()}")
+    return not stats.has_failures
 
 
 def copy_assets() -> bool:
@@ -595,6 +578,7 @@ def copy_assets() -> bool:
         print(f"  ⚠ 静态资源目录 {ASSETS_DIR} 不存在。")
         return True
 
+    SITE_DIR.mkdir(parents=True, exist_ok=True)
     target_dir = SITE_DIR / "assets"
 
     try:
@@ -615,6 +599,8 @@ def copy_content_assets(force: bool = False) -> bool:
     参数:
         force: 是否强制复制所有文件
     """
+    SITE_DIR.mkdir(parents=True, exist_ok=True)
+
     if not CONTENT_DIR.exists():
         print(f"  ⚠ 内容目录 {CONTENT_DIR} 不存在，跳过。")
         return True
@@ -655,110 +641,6 @@ def copy_content_assets(force: bool = False) -> bool:
         return False
 
 
-def generate_rss() -> bool:
-    """
-    生成 RSS 订阅源文件供 blog-post-workflow 使用。
-    从 content/Blog/, content/Study/, content/Thoughts/ 目录下的文件夹名提取日期，从 index.typ 提取标题。
-    """
-    categories = ["Blog", "Study", "Thoughts"]
-    
-    # 检查是否至少有一个目录存在
-    if not any((CONTENT_DIR / cat).exists() for cat in categories):
-        return True
-
-    print("正在生成 RSS 订阅源...")
-    posts = []
-
-    for cat in categories:
-        cat_dir = CONTENT_DIR / cat
-        if not cat_dir.exists():
-            continue
-
-        # 遍历各目录下子文件夹
-        for item in cat_dir.iterdir():
-            if not item.is_dir():
-                continue
-
-            # 从文件夹名提取日期 (例如 2026-01-20-training-bug -> 2026-01-20)
-            date_match = re.search(r"(\d{4}-\d{2}-\d{2})", item.name)
-            if not date_match:
-                continue
-
-            date_str = date_match.group(1)
-            try:
-                # 转换为日期对象以便排序
-                date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-            except ValueError:
-                continue
-
-            # 尝试从 index.typ 中提取标题
-            index_file = item / "index.typ"
-            title = item.name  # 默认标题为文件夹名
-            if index_file.exists():
-                try:
-                    content = index_file.read_text(encoding="utf-8")
-                    # 匹配 #show: template.with(title: "...") 或 = Title
-                    title_match = re.search(r'title:\s*"([^"]+)"', content)
-                    if not title_match:
-                        title_match = re.search(r"^=\s+(.+)$", content, re.MULTILINE)
-
-                    if title_match:
-                        title = title_match.group(1).strip()
-                except Exception:
-                    pass
-
-            # 构建 URL (假设输出结构为 /Category/folder-name/index.html)
-            category_prefix = f" [{cat}]"
-            relative_link = f"/{cat}/{item.name}/"
-            full_link = f"{BASE_URL}{relative_link}"
-
-            posts.append(
-                {
-                    "title": f"{title}{category_prefix}",
-                    "link": full_link,
-                    "date": date_obj,
-                    "date_rfc822": date_obj.strftime("%a, %d %b %Y 00:00:00 +0000"),
-                }
-            )
-
-    # 按日期降序排序
-    posts.sort(key=lambda x: x["date"], reverse=True)
-
-    # 构建 RSS XML
-    rss_items = []
-    for post in posts:
-        item_xml = f"""    <item>
-      <title><![CDATA[{post['title']}]]></title>
-      <link>{post['link']}</link>
-      <guid isPermaLink="true">{post['link']}</guid>
-      <pubDate>{post['date_rfc822']}</pubDate>
-    </item>"""
-        rss_items.append(item_xml)
-
-    now_rfc822 = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
-
-    rss_content = f"""<?xml version="1.0" encoding="UTF-8" ?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
-<channel>
-  <title>ghost-him's Blog</title>
-  <link>{BASE_URL}</link>
-  <description>Recent blog posts from ghost-him</description>
-  <language>zh-cn</language>
-  <lastBuildDate>{now_rfc822}</lastBuildDate>
-  <atom:link href="{BASE_URL}/feed.xml" rel="self" type="application/rss+xml" />
-{"\n".join(rss_items)}
-</channel>
-</rss>"""
-
-    try:
-        RSS_FILE.write_text(rss_content, encoding="utf-8")
-        print(f"  ✅ RSS 订阅源生成成功: {RSS_FILE}")
-        return True
-    except Exception as e:
-        print(f"  ❌ 生成 RSS 订阅源失败: {e}")
-        return False
-
-
 def clean() -> bool:
     """
     清理生成的文件。
@@ -795,28 +677,14 @@ def preview(port: int = 8000, open_browser_flag: bool = True) -> bool:
         port: 服务器端口号，默认为 8000
         open_browser_flag: 是否自动打开浏览器，默认为 True
     """
+    import webbrowser
+
     if not SITE_DIR.exists():
         print(f"  ⚠ 输出目录 {SITE_DIR} 不存在，请先运行 build 命令。")
         return False
 
     print("正在启动本地预览服务器（按 Ctrl+C 停止）...")
     print()
-
-    # 启动实时构建观察者
-    observer = None
-    if WATCHDOG_AVAILABLE:
-        try:
-            observer = Observer()
-            # 这里的 build 函数默认不使用 force=True，实现增量构建
-            handler = BuildEventHandler(build, delay=10.0)
-            observer.schedule(handler, path=".", recursive=True)
-            observer.start()
-            print(f"  👀 实时构建已启用 (检测文件内容变化，防抖: 10秒)")
-        except Exception as e:
-            print(f"  ❌ 无法启动文件观察者: {e}")
-    else:
-        print("  ⚠ 未找到 watchdog 库，实时自动构建功能已禁用。")
-        print("     提示: 使用 'uv run build.py preview' 可自动处理依赖。")
 
     if open_browser_flag:
 
@@ -841,10 +709,6 @@ def preview(port: int = 8000, open_browser_flag: bool = True) -> bool:
     except KeyboardInterrupt:
         print("\n服务器已停止。")
         return True
-    finally:
-        if observer:
-            observer.stop()
-            observer.join()
 
     # 回退到 Python http.server
     try:
@@ -860,13 +724,398 @@ def preview(port: int = 8000, open_browser_flag: bool = True) -> bool:
     except Exception as e:
         print(f"  ❌ 启动服务器失败: {e}")
         return False
-    finally:
-        if observer:
-            observer.stop()
-            observer.join()
 
 
-def build(force: bool = False):
+def parse_html_metadata(html_path: Path) -> dict[str, str]:
+    """
+    解析 HTML 文件并返回元数据解析器实例。
+
+    参数:
+        html_path (Path): HTML 文件路径
+
+    返回:
+        HTMLMetadataParser: 包含解析结果的解析器实例
+    """
+    parser = HTMLMetadataParser()
+    parser.feed(html_path.read_text(encoding="utf-8"))
+    return parser.metadata
+
+
+def get_site_url() -> str | None:
+    """
+    从生成的首页 HTML 文件中解析站点 URL。
+
+    功能:
+        从 _site/index.html 的 <link rel="canonical" href="..."> 提取 site-url。
+
+    返回:
+        str: 站点的根 URL（如 "https://example.com"），末尾不带斜杠。
+            如果未配置或解析失败则返回 None。
+    """
+    index_html = SITE_DIR / "index.html"
+    parser = parse_html_metadata(index_html)
+
+    if parser.get("link"):
+        return parser["link"].rstrip("/")
+
+    return None
+
+
+def get_feed_dirs() -> set[str]:
+    """
+    从 config.typ 配置文件中解析 RSS Feed 订阅源的配置信息。
+
+    功能:
+        解析 config.typ 中的 feed 配置块，提取目录列表。
+
+    返回:
+        set[str]: 要包含的文章目录列表，默认为空集合
+    """
+    if not CONFIG_FILE.exists():
+        return set()
+
+    try:
+        content = CONFIG_FILE.read_text(encoding="utf-8")
+
+        # 移除注释
+        content = re.sub(r"//.*", "", content)
+        content = re.sub(r"/\*[\s\S]*?\*/", "", content)
+
+        match = re.search(r"feed-dir\s*:\s*\((.*?)\)", content, re.DOTALL)
+        if match:
+            return set(
+                c.strip("/") for c in re.findall(r'"([^"]*)"', match.group(1)) if c and c.strip("/")
+            )
+    except Exception as e:
+        print(f"⚠️ 解析 feed-dir 失败: {e}")
+
+    return set()
+
+
+def extract_post_metadata(index_html: Path) -> tuple[str, str, str, datetime | None]:
+    """
+    从生成的 HTML 文件中提取文章的元数据信息。
+
+    功能:
+        提取文章元数据：
+        1. 标题 (title): 从 <title> 标签提取
+        2. 描述 (description): 从 <meta name="description"> 提取
+        3. 链接 (link): 从 <link rel="canonical" href="..."> 提取
+        4. 日期 (date): 依次尝试从以下来源获取：
+            - HTML 中的 <meta name="date" content="...">
+            - 文件夹名中的 YYYY-MM-DD 格式日期
+
+    参数:
+        index_html (Path): 文章的 index.html 文件路径
+
+    返回:
+        tuple[str, str, str, datetime | None]: 包含四个元素的元组：
+            - str: 文章标题
+            - str: 文章描述（可能为空字符串）
+            - str: 文章链接（完整 URL）
+            - datetime | None: 文章日期（带 UTC 时区），无法获取时为 None
+    """
+    parser = parse_html_metadata(index_html)
+
+    title = parser["title"].strip()
+    description = parser.get("description", "").strip()
+    link = parser.get("link", "")
+    date_obj = None
+
+    # 尝试从 <meta name="date"> 解析日期
+    if parser.get("date"):
+        try:
+            date_obj = datetime.strptime(parser["date"].split("T")[0], "%Y-%m-%d")
+            date_obj = date_obj.replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+
+    # 如果没找到日期，尝试从文件夹名提取 (YYYY-MM-DD)
+    if not date_obj:
+        date_match = re.search(r"(\d{4}-\d{2}-\d{2})", index_html.parent.name)
+        if date_match:
+            try:
+                date_obj = datetime.strptime(date_match.group(1), "%Y-%m-%d")
+                date_obj = date_obj.replace(tzinfo=timezone.utc)
+            except ValueError:
+                pass
+
+    return title, description, link, date_obj
+
+
+def collect_posts(dirs: set[str], site_url: str) -> list[dict]:
+    """
+    从指定的目录中收集所有文章的元数据。
+
+    功能:
+        遍历 _site 目录下指定目录中的所有子目录，提取每个文章的元数据信息。
+        只处理目录（每个目录代表一篇文章），跳过普通文件。
+        如果无法确定文章日期，则跳过该文章并输出警告。
+
+    参数:
+        dirs (set[str]): 要扫描的目录名称集合（如 {"Blog", "Docs"}）
+        site_url (str): 站点的根 URL（如 "https://example.com"）
+
+    返回:
+        list[dict]: 文章数据字典列表，每个字典包含以下键：
+            - title (str): 文章标题
+            - description (str): 文章描述
+            - dir (str): 文章所属分类（即目录名）
+            - link (str): 文章的完整 URL
+            - date (datetime): 文章日期对象（带时区）
+    """
+    posts = []
+
+    for d in dirs:
+        dir_path = SITE_DIR / d
+
+        for item in dir_path.iterdir():
+            if not item.is_dir():
+                continue
+
+            index_html = item / "index.html"
+            if not index_html.exists():
+                continue
+
+            title, description, link, date_obj = extract_post_metadata(index_html)
+
+            if not date_obj:
+                print(f"⚠️ 无法确定文章 '{item.name}' 的日期，已跳过。")
+                continue
+
+            posts.append(
+                {
+                    "title": title,
+                    "description": description,
+                    "dir": d,
+                    "link": link,
+                    "date": date_obj,
+                }
+            )
+
+    return posts
+
+
+def build_rss_xml(posts: list[dict], config: dict) -> str:
+    """
+    构建符合 RSS 2.0 规范的 XML 内容字符串。
+
+    功能:
+        使用 Python 标准库 xml.etree.ElementTree 根据文章数据和站点配置生成完整的 RSS Feed XML。
+        支持条件输出 description 标签（仅在有描述时输出）。
+
+    参数:
+        posts (list[dict]): 文章数据列表，每个字典应包含:
+            - title: 标题
+            - description: 描述（可选）
+            - link: 文章链接
+            - date: datetime 对象
+            - dir: 分类名称 (即路径名)
+        config (dict): 站点配置字典，应包含:
+            - site_url: 站点根 URL
+            - site_title: 站点标题
+            - site_description: 站点描述
+            - lang: 语言代码（如 "zh", "en"）
+
+    返回:
+        str: 完整的 RSS 2.0 XML 字符串，包含 XML 声明和所有必要的命名空间。
+    """
+    import xml.etree.ElementTree as ET
+    from email.utils import format_datetime
+
+    # 注册 atom 命名空间前缀
+    ATOM_NS = "http://www.w3.org/2005/Atom"
+    ET.register_namespace("atom", ATOM_NS)
+
+    # 创建 RSS 根元素（命名空间声明由 register_namespace 自动处理）
+    rss = ET.Element("rss", version="2.0")
+
+    # Channel 元数据
+    channel = ET.SubElement(rss, "channel")
+    ET.SubElement(channel, "title").text = config["site_title"]
+    ET.SubElement(channel, "link").text = config["site_url"]
+    ET.SubElement(channel, "description").text = config["site_description"]
+    ET.SubElement(channel, "language").text = config["lang"]
+    ET.SubElement(channel, "lastBuildDate").text = format_datetime(datetime.now(timezone.utc))
+
+    # 添加 atom:link 自链接
+    atom_link = ET.SubElement(channel, f"{{{ATOM_NS}}}link")
+    atom_link.set("href", f"{config['site_url']}/feed.xml")
+    atom_link.set("rel", "self")
+    atom_link.set("type", "application/rss+xml")
+
+    # 添加文章条目
+    for post in posts:
+        item = ET.SubElement(channel, "item")
+
+        ET.SubElement(item, "title").text = post["title"]
+        ET.SubElement(item, "link").text = post["link"]
+        ET.SubElement(item, "guid", isPermaLink="true").text = post["link"]
+        ET.SubElement(item, "pubDate").text = format_datetime(post["date"])
+        ET.SubElement(item, "category").text = post["dir"]
+
+        # 仅在有描述时添加
+        if des := post["description"]:
+            ET.SubElement(item, "description").text = des
+
+    # 生成 XML 字符串
+    ET.indent(rss, space="  ")
+    xml_str = ET.tostring(rss, encoding="unicode", xml_declaration=False)
+
+    return f'<?xml version="1.0" encoding="UTF-8"?>\n{xml_str}'
+
+
+def generate_rss(site_url: str) -> bool:
+    """
+    生成网站的 RSS 订阅源文件。
+
+    功能:
+        完整的 RSS Feed 生成流程：
+        1. 从 config.typ 读取目标目录（分类）
+        2. 收集指定目录下的所有文章元数据
+        3. 按日期排序
+        4. 构建 RSS XML 并写入文件
+
+    返回:
+        bool: 生成是否成功。在以下情况返回 True：
+            - 成功生成 RSS 文件
+            - 未找到任何分类目录（跳过生成）
+            - 未找到任何文章（生成空 Feed）
+        仅在发生异常时返回 False。
+    """
+    rss_file = SITE_DIR / "feed.xml"
+    dirs = get_feed_dirs()
+
+    if not dirs:
+        print("⚠️ 跳过 RSS 订阅源生成: 未配置任何目录。")
+        return True
+
+    # 检查是否至少有一个目录存在
+    existing = {d for d in dirs if (SITE_DIR / d).exists()}
+    missing = dirs - existing
+
+    for d in missing:
+        print(f"⚠️ 警告: 配置的目录 '{d}' 不存在。")
+
+    if not existing:
+        print("⚠️ 跳过 RSS 订阅源生成: 配置的目录都不存在。")
+        return True
+
+    # 收集文章
+    posts = collect_posts(existing, site_url)
+
+    if not posts:
+        print("⚠️ 未找到任何文章，RSS 订阅源为空。")
+        return True
+
+    # 按日期降序排序
+    posts = sorted(posts, key=lambda x: x["date"], reverse=True)
+
+    # 获取配置信息
+    index_html = SITE_DIR / "index.html"
+    parser = parse_html_metadata(index_html)
+
+    lang = parser["lang"]
+    site_title = parser["title"].strip()
+    site_description = parser.get("description", "").strip()
+
+    config = {
+        "site_url": site_url,
+        "site_title": site_title,
+        "site_description": site_description,
+        "lang": lang,
+    }
+
+    # 构建 RSS XML
+    try:
+        rss_content = build_rss_xml(posts, config)
+        rss_file.write_text(rss_content, encoding="utf-8")
+        print(f"✅ RSS 订阅源生成成功: {rss_file} ({len(posts)} 篇文章)")
+        return True
+    except ValueError as e:
+        print("❌ 错误: RSS 订阅源生成失败")
+        print(f"   原因: feedgen 库报错 - {e}")
+        print("   解决: 请检查 config.typ 中的必需配置字段（title 和 description）")
+        return False
+    except Exception as e:
+        print("❌ 错误: 生成 RSS 订阅源时出错")
+        print(f"   异常: {type(e).__name__}: {e}")
+        return False
+
+
+def generate_sitemap(site_url: str) -> bool:
+    """
+    使用 Python 标准库 xml.etree.ElementTree 生成 sitemap.xml。
+    """
+    import xml.etree.ElementTree as ET
+
+    sitemap_path = SITE_DIR / "sitemap.xml"
+    sitemap_ns = "http://www.sitemaps.org/schemas/sitemap/0.9"
+
+    # 注册默认命名空间
+    ET.register_namespace("", sitemap_ns)
+
+    # 创建根元素
+    urlset = ET.Element("urlset", xmlns=sitemap_ns)
+
+    # 遍历 _site 目录
+    for file_path in sorted(SITE_DIR.rglob("*.html")):
+        rel_path = file_path.relative_to(SITE_DIR).as_posix()
+
+        # 确定 URL 路径
+        if rel_path == "index.html":
+            url_path = ""
+        elif rel_path.endswith("/index.html"):
+            url_path = rel_path.removesuffix("index.html")
+        elif rel_path.endswith(".html"):
+            url_path = rel_path.removesuffix(".html") + "/"
+        else:
+            url_path = rel_path
+
+        full_url = f"{site_url}/{url_path}"
+
+        # 获取最后修改时间
+        mtime = file_path.stat().st_mtime
+        lastmod = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+
+        # 创建 url 元素
+        url_elem = ET.SubElement(urlset, "url")
+        ET.SubElement(url_elem, "loc").text = full_url
+        ET.SubElement(url_elem, "lastmod").text = lastmod
+
+    # 生成 XML 字符串
+    ET.indent(urlset, space="  ")
+    xml_str = ET.tostring(urlset, encoding="unicode", xml_declaration=False)
+    sitemap_content = f'<?xml version="1.0" encoding="UTF-8"?>\n{xml_str}'
+
+    try:
+        sitemap_path.write_text(sitemap_content, encoding="utf-8")
+        print(f"✅ Sitemap 构建完成: 包含 {len(urlset)} 个页面")
+        return True
+    except Exception as e:
+        print(f"❌ Sitemap 构建失败: {e}")
+        return False
+
+
+def generate_robots_txt(site_url: str) -> bool:
+    """
+    Generate robots.txt pointing to the sitemap.
+    """
+    robots_content = f"""User-agent: *
+Allow: /
+
+Sitemap: {site_url}/sitemap.xml
+"""
+
+    try:
+        (SITE_DIR / "robots.txt").write_text(robots_content, encoding="utf-8")
+        return True
+    except Exception as e:
+        print(f"❌ 生成 robots.txt 失败: {e}")
+        return False
+
+
+def build(force: bool = False) -> bool:
     """
     完整构建：HTML + PDF + 资源。
 
@@ -875,6 +1124,7 @@ def build(force: bool = False):
     """
     print("-" * 60)
     if force:
+        clean()
         print("🛠️ 开始完整构建...")
     else:
         print("🚀 开始增量构建...")
@@ -892,7 +1142,11 @@ def build(force: bool = False):
 
     results.append(copy_assets())
     results.append(copy_content_assets(force))
-    results.append(generate_rss())
+
+    if site_url := get_site_url():
+        results.append(generate_sitemap(site_url))
+        results.append(generate_robots_txt(site_url))
+        results.append(generate_rss(site_url))
 
     print("-" * 60)
     if all(results):
@@ -910,7 +1164,7 @@ def build(force: bool = False):
 # ============================================================================
 
 
-def create_parser():
+def create_parser() -> argparse.ArgumentParser:
     """
     创建命令行参数解析器。
     """
@@ -972,15 +1226,22 @@ if __name__ == "__main__":
     # 获取 force 参数
     force = getattr(args, "force", False)
 
-    # 执行对应的命令
-    commands = {
-        "build": lambda: build(force),
-        "html": lambda: (SITE_DIR.mkdir(parents=True, exist_ok=True), build_html(force))[1],
-        "pdf": lambda: (SITE_DIR.mkdir(parents=True, exist_ok=True), build_pdf(force))[1],
-        "assets": lambda: (SITE_DIR.mkdir(parents=True, exist_ok=True), copy_assets())[1],
-        "clean": clean,
-        "preview": lambda: preview(getattr(args, "port", 8000), getattr(args, "open_browser", True)),
-    }
+    # 使用 match-case 执行对应的命令
+    match args.command:
+        case "build":
+            success = build(force)
+        case "html":
+            success = build_html(force)
+        case "pdf":
+            success = build_pdf(force)
+        case "assets":
+            success = copy_assets()
+        case "clean":
+            success = clean()
+        case "preview":
+            success = preview(getattr(args, "port", 8000), getattr(args, "open_browser", True))
+        case _:
+            print(f"❌ 未知命令: {args.command}")
+            success = False
 
-    success = commands[args.command]()
     sys.exit(0 if success else 1)

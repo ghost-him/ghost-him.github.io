@@ -14,7 +14,7 @@
 This is a static website building template based on [Typst](https://typst.app/) and [Tufted](https://github.com/vsheg/tufted), providing step-by-step guidance to build a clean and beautiful personal website, blog, and resume.
 
 If you want to quickly experience the website style, you can visit [Demo Website](https://tufted-blog.pages.dev/).
-Update log available at [Changelog](https://tufted-blog.pages.dev/Changelog/) .
+Update log available at [Changelog](CHANGELOG_en.md) .
 
 ![Tufted website](content/imgs/devices.webp)
 
@@ -221,6 +221,7 @@ Tufted-Blog-Template/
 This template is based on the Typst package [Tufted](https://github.com/vsheg/tufted) developed by [Vsevolod Shegolev](http://vsheg.com/), with some style and functionality modifications to better support Chinese content, including:
 
 - Modified some text styles to adapt to Chinese typesetting conventions
+- Fine-tuned a large number of style details, enhanced dark mode, and optimized the display effects of various elements
 - Optimized code block styles, added line numbers and copy functionality
 - Added Python build script for cross-platform build support
 - Added PDF build support, allowing compilation of PDF documents and linking to web pages

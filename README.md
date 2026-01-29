@@ -22,7 +22,7 @@
 这是一个基于 [Typst](https://typst.app/) 和 [Tufted](https://github.com/vsheg/tufted) 的静态网站构建模板，手把手教你搭建简洁、美观的个人网站、博客和简历设计。
 
 如果你想快速体验网站样式效果，可以访问 [示例网站](https://tufted-blog.pages.dev/) 。
-更新记录可见 [Changelog](https://tufted-blog.pages.dev/Changelog/) 。
+更新记录可见 [Changelog](CHANGELOG.md) 。
 
 ![Tufted website](content/imgs/devices.webp)
 
@@ -229,6 +229,7 @@ Tufted-Blog-Template/
 本模板基于 [Vsevolod Shegolev](http://vsheg.com/) 开发的 Typst 包 [Tufted](https://github.com/vsheg/tufted)，并进行了一些样式和功能修改以更好的支持中文内容，主要包括：
 
 - 修改部分文本样式以适应中文排版习惯
+- 微调了大量样式细节，增强了深色模式，优化了各种元素的显示效果
 - 优化代码块样式，增加行号和复制功能
 - 增加 Python 构建脚本，从而支持跨平台构建
 - 增加 PDF 构建支持，允许编译 PDF 文档并链接到网页
