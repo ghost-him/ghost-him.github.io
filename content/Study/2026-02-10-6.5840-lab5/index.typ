@@ -53,4 +53,4 @@
 
 === 任务C
 
-放弃了，实在是写不出来了。定位不出问题， Partition 测试始终能只过前3个用例，最后两个加上了clerk的就是过不去。经过定位，应该是在FreezeShard,InstallShard,DeleteShard一直死锁
+放弃了，实在是写不出来了。定位不出问题， Partition 测试始终能只过前3个用例，最后两个加上了clerk的就是过不去。经过定位，应该是在FreezeShard,InstallShard,DeleteShard一直无限重试，因为找不到服务器。但是正常来说也不应该找不到服务器的，所以非常的迷惑，不知道应该怎么改
