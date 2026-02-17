@@ -1,5 +1,5 @@
 #import "../../index.typ": template, tufted
-#show: template.with(title: "c++ 八股文查漏补缺")
+#show: template.with(title: "C++ 八股文查漏补缺")
 
 = C++ 八股文查漏补缺
 
