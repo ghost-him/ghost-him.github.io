@@ -5,7 +5,7 @@
 
 这里只是把我不知道的或记忆模糊的八股文写进来了，其他我已经会的就不写了#footnote[当然，如果写了那肯定是写全了，而且每一个都经过ai的审核，确保没有遗漏的或不说人话的部分]。所以不能只把我的这个当成背诵文档。从这个网址背的：#link("https://xiaolincoding.com/interview/cpp.html")[C++ 面试题]
 
-感觉背八股文本身就是错的，完全没有必要，可是现在的公司在面试的时候都在问八股，也就只能背了。
+感觉背八股文本身就是错的，完全没有必要。毕竟这些细枝末节的东西不经常用很快就会忘了，最后就只留有一个印象。用的时候再查就行了嘛。但是如果面试的时候是一问三不知，那在别人看起来不就是啥也不会嘛，所以也就只能背了。
 
 == 常量指针与指针常量
 
@@ -94,9 +94,9 @@ class Derived : public Base {
 public:
     int* data;
     Derived() { data = new int[100]; }
-    ~Derived() { 
-        delete[] data; 
-        cout << "Derived dest" << endl; 
+    ~Derived() {
+        delete[] data;
+        cout << "Derived dest" << endl;
     }
 };
 
@@ -187,9 +187,9 @@ int main()
 ```cpp
 Animal* a = new Cat(); // 实际上是一只猫
 // 危险！static_cast 会强行把“猫”当成“狗”
-Dog* d = static_cast<Dog*>(a); 
+Dog* d = static_cast<Dog*>(a);
 // 这里可能导致崩溃，因为 d 指向的对象内存里根本没有 Dog 的特有数据
-d->bark(); 
+d->bark();
 ```
 
 
@@ -215,7 +215,7 @@ d->bark();
 
 如果需要操作位，那么最好的方式不是使用 reinterpret_cast，而是使用 memcpy 或std::bit_cast
 
-=== bit_cast 
+=== bit_cast
 
 这个是C++20引入的新特性，专门用于安全的重新解释位，也就是处理上述的问题。
 
@@ -302,7 +302,7 @@ _NODISCARD _MSVC_INTRINSIC constexpr remove_reference_t<_Ty>&& move(_Ty&& _Arg) 
 
 步骤如下：
 + 先使用 `T&& arg` #footnote[这里也叫万能引用]来接收左值与右值参数。
-+ 然后使用 `std::remove_refrence<T>::type` 去除掉 `T` 上的引用属性（即：将`int&` 或 `int&&` 都变成单纯的 `int`）。 
++ 然后使用 `std::remove_refrence<T>::type` 去除掉 `T` 上的引用属性（即：将`int&` 或 `int&&` 都变成单纯的 `int`）。
 + 最后使用 `static_cast<int&&>(arg)` 完成强制转换，加上 `&&`。
 
 === 拓展：什么是完美转发？什么情况下需要使用？底层原理？
@@ -322,7 +322,7 @@ void process(int& x)  { cout << "左值处理" << endl; }
 void process(int&& x) { cout << "右值处理" << endl; }
 
 template <typename T>
-void wrapper(T&& arg) { 
+void wrapper(T&& arg) {
     // arg 作为一个形参，它有名字，所以在 wrapper 内部，arg 永远被看作是左值！
     process(arg); // 这里永远会调用 process(int& x)
 }
@@ -338,9 +338,9 @@ int main() {
 
 ```cpp
 template <typename T>
-void wrapper(T&& arg) { 
+void wrapper(T&& arg) {
     // 使用 std::forward 恢复 arg 原本的值类别
-    process(std::forward<T>(arg)); 
+    process(std::forward<T>(arg));
 }
 // 此时 wrapper(20) 将正确输出 "右值处理"
 ```
@@ -367,8 +367,8 @@ _NODISCARD _MSVC_INTRINSIC constexpr _Ty&& forward(remove_reference_t<_Ty>&& _Ar
 
 ```cpp
 template <typename T>
-void wrapper(T&& arg) { 
-    process(std::forward<T>(arg)); 
+void wrapper(T&& arg) {
+    process(std::forward<T>(arg));
 }
 
 ```
@@ -381,11 +381,11 @@ void wrapper(T&& arg) {
 
 
 #tufted.margin-note[
-    为什么传入右值时，它不是推导成 int &&，然后将int && && 折叠成 int &&呢?\
-    在C++中，表达式本身没有“引用”类型，表达式只有“基础类型”（比如是 `int`，还是`double`，还是`MyClass`等）和“值类别”（是左值，还是右值，还是亡值）。同时，在进行类型推导前，表达式身上的引用属性会被剥离。因此，当传入字面量，或计算表达式甚至是显示调用了`std::move(x)`时，它们的类型都将是`int`。同时值类别也都是右值（`std::move()`的值类别是亡值，这也是右值）。\
-    \
-    那么为什么传入左值时，却推导出了`int&`呢？\
-    因为 C++ 11 为了实现完美转发，为左值设定了一个特殊规则：如果形参是万能引用（`T&&`），并且传入的参数是一个左值，那么`T`会被特殊推导为该类型的左值引用（`int&`）。如果没有该规则，那么将左值`T`传给`T&&`时，推导是会报错的。
+  为什么传入右值时，它不是推导成 int &&，然后将int && && 折叠成 int &&呢?\
+  在C++中，表达式本身没有“引用”类型，表达式只有“基础类型”（比如是 `int`，还是`double`，还是`MyClass`等）和“值类别”（是左值，还是右值，还是亡值）。同时，在进行类型推导前，表达式身上的引用属性会被剥离。因此，当传入字面量，或计算表达式甚至是显示调用了`std::move(x)`时，它们的类型都将是`int`。同时值类别也都是右值（`std::move()`的值类别是亡值，这也是右值）。\
+  \
+  那么为什么传入左值时，却推导出了`int&`呢？\
+  因为 C++ 11 为了实现完美转发，为左值设定了一个特殊规则：如果形参是万能引用（`T&&`），并且传入的参数是一个左值，那么`T`会被特殊推导为该类型的左值引用（`int&`）。如果没有该规则，那么将左值`T`传给`T&&`时，推导是会报错的。
 ]
 
 如果传入的是右值（例如 wrapper(20)）：
@@ -401,8 +401,8 @@ void wrapper(T&& arg) {
 在C++中，主要有这样的几个概念：
 + 对齐要求：每种数据类型都有其特定的对齐要求。比如在 64 位系统中，int 的对齐要求通常是4字节，所以它的起始地址必须可以被 4 整除。如果一个类型的邽是其自身大小的整数倍时，则称为自然对齐#footnote[比如 8 字节的 double 存放在 8 的倍数地址上]。
 + 填充字节：为了满足对齐要求，编译器在数据成员之间或结构体末尾会自动插入无意义的字节。
-    + 内部填充：在结构体的成员之间，确保后续成员满足对齐要求
-    + 尾部填充：位于结构体末尾，确保在创建该结构体数组时，每一个数组元素的起始地址都符合对齐要求。
+  + 内部填充：在结构体的成员之间，确保后续成员满足对齐要求
+  + 尾部填充：位于结构体末尾，确保在创建该结构体数组时，每一个数组元素的起始地址都符合对齐要求。
 + 对齐值：通常指一个结构体中最大成员的对齐要求。整个结构体的起始地址和总大小必须是该对齐值的整数倍。
 
 为什么要内存对齐？
