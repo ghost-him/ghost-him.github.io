@@ -4,3 +4,5 @@
 = 私にできることなら何でもするから！
 
 #tufted.full-width[#image("assets/belike.webp")]
+
+= 咕咕嘎嘎！😭🙏
