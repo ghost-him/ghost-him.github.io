@@ -459,3 +459,95 @@ void wrapper(T&& arg) {
 malloc并不是每次都会将 `free` 的内存还给内核，而是先放到Bins里。当再次 `malloc` 时，会优先从 Bins 中找一个大小合适的内存返回，这样可以减少系统调用，提高性能。
 
 malloc 返回的都是虚拟地址。如果是第一次读写这块地址时，会触发缺页中断，此时内核才会真正的去分配物理内存并建立映射关系。
+
+== std::future
+
+std::future 是一个占位符对象，代表了一个在未来某个时间点才会变得可用的值。
+
+在多线程编程中，通常会使用一个后台的任务来计算结果或获得数据。那么如果主线程要拿到这个后台任务的返回值，就可以使用 std::future。std::future 提供了一种机制来访问异步操作的结果。
+
+它是提供者与获取者的工作模型。它可以被以下的3种提供者提供：
++ `std::async`：直接启动一个异步函数，返回一个 std::future
++ `std::promise`：手动设置值。可以在一个线程里使用 promise 写数据，在另一个线程里通过关联的 future 读数据。
++ `std::packaged_task`：将一个函数包装起来，使其返回值可以被 `future` 获取，常用于线程池
+
+以下是这3种的使用示例：
+```cpp
+#include <iostream>
+#include <future>
+#include <thread>
+#include <chrono>
+#include <functional>
+
+// 一个简单的耗时计算任务：计算平方
+int calculate_square(int x) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    return x * x;
+}
+
+int main() {
+    std::cout << "--- 开始 std::future 提供者演示 ---\n" << std::endl;
+
+    // ====================================================
+    // 1. std::async —— 最简单的自动化方案
+    // 作用：直接启动异步任务，返回 future。
+    // ====================================================
+    {
+        std::cout << "[std::async] 正在启动..." << std::endl;
+
+        // std::launch::async 确保在新线程中运行
+        std::future<int> f1 = std::async(std::launch::async, calculate_square, 10);
+
+        // 主线程可以做别的事...
+        std::cout << "[std::async] 结果: " << f1.get() << std::endl;
+    }
+
+    // ====================================================
+    // 2. std::promise —— 最灵活的手动方案
+    // 作用：在线程间手动传递“单次”信号或值。
+    // ====================================================
+    {
+        std::cout << "\n[std::promise] 正在启动..." << std::endl;
+
+        std::promise<int> prom;
+        std::future<int> f2 = prom.get_future();
+
+        // 启动一个线程，手动在某个时刻填充结果
+        std::thread t([&prom]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            int result = 20 * 20;
+            prom.set_value(result); // 手动设置值，此时 f2.get() 才会解除阻塞
+        });
+
+        std::cout << "[std::promise] 结果: " << f2.get() << std::endl;
+        t.join();
+    }
+
+    // ====================================================
+    // 3. std::packaged_task —— 适用于任务队列/线程池
+    // 作用：包装一个函数对象，解耦“任务定义”与“任务执行”。
+    // ====================================================
+    {
+        std::cout << "\n[std::packaged_task] 正在启动..." << std::endl;
+
+        // 包装函数
+        std::packaged_task<int(int)> task(calculate_square);
+
+        // 获取关联的 future
+        std::future<int> f3 = task.get_future();
+
+        // task 本身是可调用的（类似于 std::function），但它会将结果存入 future
+        // 我们可以把这个 task 扔进一个线程或者任务队列里
+        std::thread t(std::move(task), 30);
+
+        std::cout << "[std::packaged_task] 结果: " << f3.get() << std::endl;
+        t.join();
+    }
+
+    std::cout << "\n--- 演示结束 ---" << std::endl;
+    return 0;
+}
+```
+
+这里需要注意的是：`std::future::get()` 只能被调用一次。调用后，该对象的状态就无效了。如果需要使用多个线程等待同一个结果，应该使用 `std::shared_future`。
+
