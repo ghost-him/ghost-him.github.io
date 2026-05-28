@@ -8,3 +8,4 @@
 #quote-box[按添加时间选后顺序排列]
 
 - #link("https://alan-blog.netlify.app")[alan]
+- #link("https://kevinlu98.cn")[Mr丶冷文]
