@@ -12,6 +12,9 @@ build/
 .venv/
 uv.lock
 
+# local tooling
+biome.json
+
 # IDE
 .vscode/
 *.swp
