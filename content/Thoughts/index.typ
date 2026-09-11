@@ -6,6 +6,7 @@
 
 == 2026
 
+#tufted.blog-entry(date: datetime(year: 2026, month: 9, day: 11), path: "2026-09-11-internship-end", title: "鹅厂实习体验卡到期")
 #tufted.blog-entry(date: datetime(year: 2026, month: 5, day: 31), path: "2026-05-31-headphone", title: "虹曙！🍠！")
 #tufted.blog-entry(date: datetime(year: 2026, month: 3, day: 9), path: "2026-03-09-seeking-internships", title: "找实习")
 #tufted.blog-entry(date: datetime(year: 2026, month: 2, day: 13), path: "2026-02-13-chat/", title: "聊天")
