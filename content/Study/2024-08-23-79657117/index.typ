@@ -52,7 +52,7 @@ $ Theta^(*) = arg min_Theta L \( F_Theta \( X^(t \, T) \) \, Y^(t + 1 \, T_0) \)
 
 #figure(image("assets/20240823110442-f43f501f.webp"))
 
-`FC` 全连接层，`AvgPool` 为平均池化，$times.circle$ 表示Kronecker积，$dot.circle$ 表示Hadamard积。
+`FC` 全连接层，`AvgPool` 为平均池化，$⊗$ 表示Kronecker积，$⊙$ 表示Hadamard积。
 
 === 差分散度正则化
 该正则化方法可以强迫模型学习连续帧之间的差异并意识到固有的变化。

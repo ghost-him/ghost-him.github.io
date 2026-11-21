@@ -21,11 +21,11 @@
 == 从标准 softmax 注意力到先进的门控线性注意力（GLA）的演变
 Softmax 注意力因为它有动态建模长序列关系的强大能力，并且在训练或具有很好的并行性，所以一直被 Transformer 使用。在自回归 Transformer 中使用的 softmax 注意力可以定义为：
 
-$ Q \, K \, V = X W_Q \, X W_K \, X W_V $ $ O = upright("softmax") \( \( Q K^T \) dot.circle M \) V $ 其中，$X$ 为输入的序列，$W_Q$，$W_K$，$W_V$ 为可训练的投影矩阵，$M in { - inf \, 1 }^(T * T)$ 是防止与未来标记交互的因果掩码，$O$ 为输出。以上的并行形式也可以写成以下递归形式来计算单个输出 $o_t$：
+$ Q \, K \, V = X W_Q \, X W_K \, X W_V $ $ O = upright("softmax") \( \( Q K^T \) ⊙ M \) V $ 其中，$X$ 为输入的序列，$W_Q$，$W_K$，$W_V$ 为可训练的投影矩阵，$M in { - inf \, 1 }^(T * T)$ 是防止与未来标记交互的因果掩码，$O$ 为输出。以上的并行形式也可以写成以下递归形式来计算单个输出 $o_t$：
 
 $ q_t \, k_t \, v_t = x_t W_Q \, x_t W_K \, x_t W_V $ $ o_t = frac(sum_(i = 1)^t exp \( q_t k_i^T \) v_i, sum_(i = 1)^t exp \( q_t k_i^T \)) $
 
-线性注意力是用特征映射点积 $phi.alt \( q_t \) phi.alt \( k_i \)^T$ 来代替标准 softmax 中的 $exp \( q_t k_i^T \)$。在最近的实验中，又证明了线性特征映射在设置 $phi.alt$ 为恒等映射并移除归一化器的情况下效果很好，所以简化 $o_t$ 的计算为： $ o_t = q_t sum_(i = 1)^t k_i^T v_i $ 令隐藏状态 $S_t = sum_(i = 1)^t k_i^T v_i$，它是固定大小并压缩了历史信息，可以将上述计算制定为一个 RNN： $ S_t = S_(t - 1) + k_t^T v_t $ $ o_t = q_t S_t $ 门控线性注意力 （GLA）提出了在线性注意力中添加数据依赖的门控机制来增强表达能力。其公式可以描述为： $ alpha_t = s i g m o i d \( \( x_t W_alpha^1 W_alpha^2 + b_alpha \) \)^(1 / tau) $ $ G_t = alpha_t^T 1 in \( 0 \, 1 \)^(d_k times d_v) $ $ S_t = G_t dot.circle S_(t - 1) + k_t^T v_t in bb(R)^(d_k times d_v) $ $ o_t = q_t S_t $ 其中，$alpha_t$ 是能对这对 $x_t$ 应用一个低秩线性层并经过 sigmoid 激活函数得到的。而 $W_1^alpha$，$W_2^alpha$ 与 $b_alpha$ 是可训练的矩阵，$tau = 16$ 是一个温度项，用于鼓励模型具有较慢的遗忘率，$G_t$ 为矩阵正式工的遗忘门，通过与矩阵 1 外积扩展得到。
+线性注意力是用特征映射点积 $phi.alt \( q_t \) phi.alt \( k_i \)^T$ 来代替标准 softmax 中的 $exp \( q_t k_i^T \)$。在最近的实验中，又证明了线性特征映射在设置 $phi.alt$ 为恒等映射并移除归一化器的情况下效果很好，所以简化 $o_t$ 的计算为： $ o_t = q_t sum_(i = 1)^t k_i^T v_i $ 令隐藏状态 $S_t = sum_(i = 1)^t k_i^T v_i$，它是固定大小并压缩了历史信息，可以将上述计算制定为一个 RNN： $ S_t = S_(t - 1) + k_t^T v_t $ $ o_t = q_t S_t $ 门控线性注意力 （GLA）提出了在线性注意力中添加数据依赖的门控机制来增强表达能力。其公式可以描述为： $ alpha_t = s i g m o i d \( \( x_t W_alpha^1 W_alpha^2 + b_alpha \) \)^(1 / tau) $ $ G_t = alpha_t^T 1 in \( 0 \, 1 \)^(d_k times d_v) $ $ S_t = G_t ⊙ S_(t - 1) + k_t^T v_t in bb(R)^(d_k times d_v) $ $ o_t = q_t S_t $ 其中，$alpha_t$ 是能对这对 $x_t$ 应用一个低秩线性层并经过 sigmoid 激活函数得到的。而 $W_1^alpha$，$W_2^alpha$ 与 $b_alpha$ 是可训练的矩阵，$tau = 16$ 是一个温度项，用于鼓励模型具有较慢的遗忘率，$G_t$ 为矩阵正式工的遗忘门，通过与矩阵 1 外积扩展得到。
 
 == 网络总体结构与处理流程
 + 图像转换：原始的图像是一个 `H*W*3` 的图像，将该图像分割成多个小的图像 patch，每个 patch 的大小为 `p*p`。通过分割，图像被转换成 T 个 patch token，其中 $T = H * W \/ p^2$。每个 patch token 有 d 维度的特征表示。
@@ -65,7 +65,7 @@ $overline(square.stroked)$ 表示双向修改，$arrow(square.stroked)$ 与 $arr
 
 受到 GLA 中数据依赖门控机制的启发，提出了数据依赖的门控聚合用于二维局部注入，来交织全局与局部信息可由以下公式表示：
 
-$ O_(l o c a l) = D W C o n v_(3 * 3) \( X \) $ $ O_(g l o b a l) = B i G L A \( O_(l o c a l) \) $ $ G_(2 D) = s i g m o i d \( O_(l o c a l) W_(g a t e 2 D) + b_(g a t e 2 D) \) $ $ O = G_(2 D) dot.circle O_(l o c a l) + \( 1 - G_(2 D) \) dot.circle O_(g l o b a l) $
+$ O_(l o c a l) = D W C o n v_(3 * 3) \( X \) $ $ O_(g l o b a l) = B i G L A \( O_(l o c a l) \) $ $ G_(2 D) = s i g m o i d \( O_(l o c a l) W_(g a t e 2 D) + b_(g a t e 2 D) \) $ $ O = G_(2 D) ⊙ O_(l o c a l) + \( 1 - G_(2 D) \) ⊙ O_(g l o b a l) $
 
 == 架构细节
 提出了两种 ViG 模型变体，一种是 ViT 风格的非层次模型，每个模块中有固定数量的 token，一种是 CNN 风格的层次模型，token 逐渐下采样。

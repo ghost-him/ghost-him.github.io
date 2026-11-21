@@ -372,6 +372,18 @@ def md_to_typst(pandoc: str, markdown: str) -> str:
     return proc.stdout.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
 
 
+def replace_in_math(text: str, mapping: dict[str, str]) -> str:
+    """只在 `$...$` 数学区内替换符号名，避免误伤正文与代码。"""
+
+    def repl(match: re.Match[str]) -> str:
+        body = match.group(0)
+        for old, new in mapping.items():
+            body = re.sub(rf"(?<![\w.]){re.escape(old)}(?![\w.])", new, body)
+        return body
+
+    return re.sub(r"\$[^$]*\$", repl, text, flags=re.S)
+
+
 def polish_typst(typst: str) -> str:
     # 无 alt 的独立图片：Pandoc 会包成 #box(image(...))，改成 figure 以命中模板样式
     typst = re.sub(
@@ -390,6 +402,16 @@ def polish_typst(typst: str) -> str:
     )
     # Pandoc 的 --- 会输出 #horizontalrule；Typst 的 #line 在 HTML 导出里不产生元素
     typst = typst.replace("#horizontalrule", "#html.hr()")
+    # Typst 0.15 移除了 .circle 修饰符与 sect 符号，统一换成 Unicode 字面量
+    typst = replace_in_math(
+        typst,
+        {
+            "times.circle": "⊗",
+            "dot.circle": "⊙",
+            "minus.circle": "⊖",
+            "sect": "∩",
+        },
+    )
     # Pandoc 有时留下空 figure / 空 caption
     typst = re.sub(r"#figure\(\s*\)", "", typst)
 

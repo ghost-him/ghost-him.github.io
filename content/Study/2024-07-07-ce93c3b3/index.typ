@@ -85,9 +85,9 @@ MBConv 块使用了倒置瓶颈设计。它包含了一个 `1*1` 卷积用于扩
 
 如果输入的 token 可以表示为 $X$，$L$ 为 token 长度，$C$ 为通道大小，空间混合模块以 $Q - s h i f t$ 模块开始： $ R_s = Q - S h i f t_R \( X \) W_R \, K_s = Q - S h i f t_K \( X \) W_k \, V_S = Q - S h i f t_V \( X \) W_V $ Q-Shift 是一个重要的模块，因为它允许每个 token 与四个方向的像素邻域进行插值，保持图像特征的局部性，并已被证明是有效的： $ Q upright("-") S h i f t \( X \) = X + \( 1 - mu \) X' $ 其中 $X'$ 是通过沿通道维度结合每个 token 周围的四个像素得到的 token。$mu$ 是一个可学习的超标量，每个表征都不同。
 
-在混合像素邻域后，空间混合模块全局且双向地融合 token： $ O_s = \( sigma \( R_s \) dot.circle upright("Bi-WKV") \( K_s \, V_s \) \) W_O $ $sigma$ 表示 sigmoid 函数，$dot.circle$ 是元素级乘法。Bi-WKV 是注意力机制的关键组件，使得每个 token 可以与序列中的所有其他 token 进行全局交互。对于序列中的索引为 t 的每个 token，输入为 $K_s$ 和 $V_s$ 可以有以下的计算： $ upright("Bi-WKV") \( K \, V \)_t = frac(sum_(i = 0 \, i eq.not t)^(L - 1) e^(- \( \| t - i \| - 1 \) \/ L dot.op w + k_i) v_i + e^(u + k_t) v_t, sum_(i = 0 \, i eq.not t)^(L - 1) e^(- \( \| t - i \| - 1 \) \/ L dot.op w + k_i) + e^(u + k_t)) $ $w$ 与 $u$ 是序列中共享的参数，$k_i$ 与 $v_i$ 分别对应于索引 i 处的特征 $K_s$ 与 $V_s$。Bi-WKV (K, V) 可以转换为 RNN 形式，以线性计算复杂度并行执行。
+在混合像素邻域后，空间混合模块全局且双向地融合 token： $ O_s = \( sigma \( R_s \) ⊙ upright("Bi-WKV") \( K_s \, V_s \) \) W_O $ $sigma$ 表示 sigmoid 函数，$⊙$ 是元素级乘法。Bi-WKV 是注意力机制的关键组件，使得每个 token 可以与序列中的所有其他 token 进行全局交互。对于序列中的索引为 t 的每个 token，输入为 $K_s$ 和 $V_s$ 可以有以下的计算： $ upright("Bi-WKV") \( K \, V \)_t = frac(sum_(i = 0 \, i eq.not t)^(L - 1) e^(- \( \| t - i \| - 1 \) \/ L dot.op w + k_i) v_i + e^(u + k_t) v_t, sum_(i = 0 \, i eq.not t)^(L - 1) e^(- \( \| t - i \| - 1 \) \/ L dot.op w + k_i) + e^(u + k_t)) $ $w$ 与 $u$ 是序列中共享的参数，$k_i$ 与 $v_i$ 分别对应于索引 i 处的特征 $K_s$ 与 $V_s$。Bi-WKV (K, V) 可以转换为 RNN 形式，以线性计算复杂度并行执行。
 
-在空间混合模块之后，toekn 被送往通道混合模块： $ R_c = Q upright("-") S h i f t_R \( X \) W_R $ $ K_c = Q upright("-") S h i f t_K \( X \) W_K $ $ O_c = \( sigma \( R_c \) dot.circle upright("SquaredReLU") \( K_c \) W_V \) W_O $ 通道混合模块独立地对每个 token 进行计算，类似于 MLP，但它添加了 Q-Shift 以进一步保持图像特征的局部性。特别地， $W_K$ 将嵌入投影扩展为原来的两倍， $W_V$ 将嵌入投影回原始大小。
+在空间混合模块之后，toekn 被送往通道混合模块： $ R_c = Q upright("-") S h i f t_R \( X \) W_R $ $ K_c = Q upright("-") S h i f t_K \( X \) W_K $ $ O_c = \( sigma \( R_c \) ⊙ upright("SquaredReLU") \( K_c \) W_V \) W_O $ 通道混合模块独立地对每个 token 进行计算，类似于 MLP，但它添加了 Q-Shift 以进一步保持图像特征的局部性。特别地， $W_K$ 将嵌入投影扩展为原来的两倍， $W_V$ 将嵌入投影回原始大小。
 
 == 数据，模型与训练流程介绍
 原始的 SAM 使用了一个庞大的 ViT-H 骨干网络和一个轻量的解码器，能够处理大规模的图像数据。为了提高效率和质量，RWKV-SAM 在训练数据、模型结构和训练流程上进行了改进。

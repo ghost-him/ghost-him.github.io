@@ -105,7 +105,7 @@ $ A_H = W_(1 times 1) * \( W_(1 times 1)^(*) * H A P \( X \) \) $
 
 $ A_V = W_(1 times 1) * \( W_(1 times 1)^(*) * V A P \( X \) \) $
 
-$ X' = A_H times.circle A_V dot.circle X $ 其中，$*$ 为卷积操作。HAP 与 VAP 表示水平与垂直平均池化（AP）。$A_H in R^(B * \( C * T \) * H * 1)$ 与 $A_V in R^(B * \( C * T \) * 1 * W)$ 表示水平与垂直注意力交互的权重共享。$times.circle$ 与 $dot.circle$ 分别表示 Kronecker 积和 Hadamard 积。
+$ X' = A_H ⊗ A_V ⊙ X $ 其中，$*$ 为卷积操作。HAP 与 VAP 表示水平与垂直平均池化（AP）。$A_H in R^(B * \( C * T \) * H * 1)$ 与 $A_V in R^(B * \( C * T \) * 1 * W)$ 表示水平与垂直注意力交互的权重共享。$⊗$ 与 $⊙$ 分别表示 Kronecker 积和 Hadamard 积。
 
 `C*T*H*1` 与 `C*T*1*W` 的矩阵经过 Kronecker 积后，其形状为 `C*T*H*W`。（C，T 维度不会变：两个矩阵在这两个维度下是对齐的，所以相当于元素级乘法）
 
@@ -114,7 +114,7 @@ $ X' = A_H times.circle A_V dot.circle X $ 其中，$*$ 为卷积操作。HAP �
 
 $ A_T = W_(1 times 1) * G A P \( X \) $
 
-$ X' = A_T times.circle X $ GAP 为全局平均池化。
+$ X' = A_T ⊗ X $ GAP 为全局平均池化。
 
 === 3 D 小波嵌入和重构
 #figure(image("assets/20240821150604-e7137a87.webp"))
