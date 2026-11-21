@@ -1,6 +1,10 @@
 #import "../index.typ": template, tufted
 #show: template.with(title: "Moments / 动态")
 
+== 2026/11/21
+
+今天把旧博客的内容同步到了这个博客里，用ds来做的，还是非常方便的，之前一直犯懒，就一直没搞
+
 == 2026/6/30
 
 没有人会对一捧土产生情感，直到自己亲手垒起了一座。
